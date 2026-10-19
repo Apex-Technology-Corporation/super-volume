@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts\\\\3-build.ps1)",
+      "PowerShell(New-Item -ItemType Directory -Force -Path \"presentacion web\\\\descargas\")",
+      "PowerShell(Copy-Item dist\\\\super-volume-v2.0.0.zip \"presentacion web\\\\descargas\\\\\" -Force)",
+      "Bash(python -c ' *)",
+      "Bash(node C:/Users/ALVARO/AppData/Local/Temp/claude/c--Users-ALVARO-Documents-GitHub-super-volume/be5cd8b6-57c1-4356-b512-44736e4f847e/scratchpad/cdp_test.mjs C:/Users/ALVARO/AppData/Local/Temp/claude/c--Users-ALVARO-Documents-GitHub-super-volume/be5cd8b6-57c1-4356-b512-44736e4f847e/scratchpad)",
+      "Bash(taskkill //F //IM chrome.exe //FI \"WINDOWTITLE eq about:blank\")",
+      "Bash(node --experimental-websocket C:/Users/ALVARO/AppData/Local/Temp/claude/c--Users-ALVARO-Documents-GitHub-super-volume/be5cd8b6-57c1-4356-b512-44736e4f847e/scratchpad/cdp_test.mjs C:/Users/ALVARO/AppData/Local/Temp/claude/c--Users-ALVARO-Documents-GitHub-super-volume/be5cd8b6-57c1-4356-b512-44736e4f847e/scratchpad)",
+      "Bash(python -c \"import websocket; print\\('websocket-client ok'\\)\")",
+      "Bash(python -c \"import websockets; print\\('websockets ok'\\)\")",
+      "PowerShell($p = Get-ChildItem -Path \"$env:LOCALAPPDATA\\\\nvm\",\"$env:APPDATA\\\\nvm\",\"C:\\\\nvm\",\"C:\\\\ProgramData\\\\nvm\",\"$env:USERPROFILE\\\\AppData\\\\Local\\\\nvm\" -Filter node.exe -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '22\\\\.23' } | Select-Object -First 1 -ExpandProperty FullName; $p)",
+      "Bash(/c/Users/ALVARO/AppData/Local/nvm/v22.23.1/node.exe C:/Users/ALVARO/AppData/Local/Temp/claude/c--Users-ALVARO-Documents-GitHub-super-volume/be5cd8b6-57c1-4356-b512-44736e4f847e/scratchpad/cdp_test.mjs C:/Users/ALVARO/AppData/Local/Temp/claude/c--Users-ALVARO-Documents-GitHub-super-volume/be5cd8b6-57c1-4356-b512-44736e4f847e/scratchpad)",
+      "PowerShell($c = \"C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\",\"C:\\\\Program Files \\(x86\\)\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\",\"$env:LOCALAPPDATA\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\" | ? { Test-Path $_ }; $c; if \\($c\\) { \\(Get-Item $c[0]\\).VersionInfo.ProductVersion }; Get-ChildItem \"$env:LOCALAPPDATA\\\\nvm\" -Directory -ErrorAction SilentlyContinue | % Name; \\(Get-Command node -ErrorAction SilentlyContinue\\).Source; \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; python --version)",
+      "PowerShell(python -m http.server 8765 --bind 127.0.0.1 --directory \"C:\\\\Users\\\\ALVARO\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-ALVARO-Documents-GitHub-super-volume\\\\54d5f741-0823-45ba-b23d-5f7506787d3f\\\\scratchpad\\\\site\")",
+      "PowerShell($s = \"C:\\\\Users\\\\ALVARO\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-ALVARO-Documents-GitHub-super-volume\\\\54d5f741-0823-45ba-b23d-5f7506787d3f\\\\scratchpad\"; New-Item -ItemType Directory -Force \"$s\\\\shots\" | Out-Null; & \"C:\\\\Users\\\\ALVARO\\\\AppData\\\\Local\\\\nvm\\\\v22.23.1\\\\node.exe\" \"$s\\\\capture.mjs\" \"C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\" \"C:\\\\Users\\\\ALVARO\\\\Documents\\\\GitHub\\\\super-volume\" \"$s\\\\shots\" \"$s\\\\profile\" \"http://localhost:8765/index.html\")",
+      "PowerShell($s = \"C:\\\\Users\\\\ALVARO\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-ALVARO-Documents-GitHub-super-volume\\\\54d5f741-0823-45ba-b23d-5f7506787d3f\\\\scratchpad\"; Remove-Item -Recurse -Force \"$s\\\\profile\" -ErrorAction SilentlyContinue; & \"C:\\\\Users\\\\ALVARO\\\\AppData\\\\Local\\\\nvm\\\\v22.23.1\\\\node.exe\" \"$s\\\\capture.mjs\" \"C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\" \"C:\\\\Users\\\\ALVARO\\\\Documents\\\\GitHub\\\\super-volume\" \"$s\\\\shots\" \"$s\\\\profile\" \"http://localhost:8765/index.html\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\ALVARO\\AppData\\Local\\Temp\\claude\\c--Users-ALVARO-Documents-GitHub-super-volume\\54d5f741-0823-45ba-b23d-5f7506787d3f\\scratchpad\\shots"
+    ]
+  }
+}

@@ -1,0 +1,1712 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Super Volume — Amplificador de audio para Chrome</title>
+<meta name="description" content="Super Volume: extensión de Chrome (Manifest V3) que amplifica el audio de la pestaña hasta 600% con Web Audio API, con ecualizador, Voice/Bass Boost y modos de sonido virtual." />
+<meta name="color-scheme" content="dark" />
+<link rel="icon" type="image/png" href="../icons/icon32.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ── Tokens ─────────────────────────────────────────────────────────── */
+  :root {
+    --bg: #070b14;
+    --bg-2: #0a1020;
+    --surface: #0f1729;
+    --surface-2: #141e34;
+    --line: rgba(148, 163, 184, 0.14);
+    --line-strong: rgba(148, 163, 184, 0.26);
+    --text: #e8edf7;
+    --muted: #9aa6bb;
+    --faint: #6b7890;
+    /* Colores reales de la extensión (popup.css / gen_icons.py) */
+    --blue: #4285f4;
+    --blue-soft: #7aa7ff;
+    --blue-glow: rgba(66, 133, 244, 0.35);
+    --amber: #fbbc04;
+    --red: #f28b82;
+    --green: #81c995;
+    --radius: 18px;
+    --radius-sm: 12px;
+    --sans: 'Manrope', 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    --mono: 'JetBrains Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  img { max-width: 100%; height: auto; display: block; }
+  a { color: var(--blue-soft); }
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  :focus-visible { outline: 2px solid var(--blue-soft); outline-offset: 3px; border-radius: 6px; }
+
+  .skip {
+    position: absolute; left: 16px; top: -60px; z-index: 100;
+    background: var(--blue); color: #fff; padding: 10px 16px; border-radius: 10px;
+    text-decoration: none; font-weight: 700;
+  }
+  .skip:focus { top: 12px; }
+
+  .wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Fondo ambiental ───────────────────────────────────────────────── */
+  .ambient {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(900px 520px at 78% -8%, rgba(66, 133, 244, 0.20), transparent 60%),
+      radial-gradient(700px 480px at -10% 30%, rgba(66, 133, 244, 0.08), transparent 60%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+  }
+
+  /* ── Navegación ────────────────────────────────────────────────────── */
+  .nav {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(7, 11, 20, 0.72);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav__inner { display: flex; align-items: center; gap: 20px; height: 68px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); font-weight: 800; letter-spacing: -0.01em; }
+  .brand img { width: 30px; height: 30px; border-radius: 8px; }
+  .nav__links { display: flex; gap: 4px; margin: 0 0 0 auto; padding: 0; list-style: none; }
+  .nav__links a {
+    display: block; padding: 8px 12px; border-radius: 10px;
+    color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600;
+    transition: color 150ms, background 150ms;
+  }
+  .nav__links a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+  .nav__cta { margin-left: 8px; }
+  .nav__toggle {
+    display: none; margin-left: auto; width: 42px; height: 42px; border-radius: 12px;
+    background: transparent; border: 1px solid var(--line-strong); color: var(--text); cursor: pointer;
+    align-items: center; justify-content: center;
+  }
+  .nav__toggle svg { width: 22px; height: 22px; fill: currentColor; }
+
+  /* ── Botones ───────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px 20px; border-radius: 999px; font-family: inherit;
+    font-size: 15px; font-weight: 700; text-decoration: none; cursor: pointer;
+    border: 1px solid transparent; transition: transform 150ms var(--ease), background 150ms, border-color 150ms, box-shadow 150ms;
+  }
+  .btn svg { width: 18px; height: 18px; fill: currentColor; flex-shrink: 0; }
+  .btn--primary { background: var(--blue); color: #fff; box-shadow: 0 8px 28px -8px var(--blue-glow); }
+  .btn--primary:hover { background: #5b95f5; transform: translateY(-1px); }
+  .btn--ghost { background: rgba(255,255,255,0.03); color: var(--text); border-color: var(--line-strong); }
+  .btn--ghost:hover { border-color: var(--blue-soft); background: rgba(66,133,244,0.08); }
+  .btn--sm { padding: 9px 16px; font-size: 14px; }
+
+  /* ── Hero ──────────────────────────────────────────────────────────── */
+  .hero { padding: 88px 0 72px; }
+  .hero__grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 56px; align-items: center; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--blue-soft);
+    margin-bottom: 18px;
+  }
+  .eyebrow::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 12px var(--blue); }
+  h1 {
+    font-size: clamp(40px, 6vw, 68px); line-height: 1.04; letter-spacing: -0.035em;
+    font-weight: 800; margin: 0 0 22px; text-wrap: balance;
+  }
+  h1 .hot { color: var(--amber); }
+  .lede { font-size: clamp(17px, 1.6vw, 19px); color: var(--muted); max-width: 54ch; margin: 0 0 32px; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 36px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 0; list-style: none; }
+  .chip {
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: rgba(255,255,255,0.02);
+  }
+  .chip b { color: var(--text); font-weight: 700; }
+
+  .hero__visual { position: relative; display: flex; justify-content: center; }
+  .hero__visual::before {
+    content: ''; position: absolute; inset: 8% 6%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(66,133,244,0.35), transparent 65%); filter: blur(30px);
+  }
+  .meter {
+    position: relative; width: min(420px, 100%); aspect-ratio: 1; border-radius: 50%;
+    display: grid; place-items: center;
+  }
+  .meter svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .meter__center { text-align: center; position: relative; }
+  .meter__value { font-size: clamp(56px, 8vw, 84px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .meter__label { color: var(--muted); font-size: 14px; font-weight: 600; margin-top: 8px; }
+  .meter__icon { width: 64px; height: 64px; border-radius: 16px; margin: 0 auto 14px; box-shadow: 0 10px 40px -10px var(--blue-glow); }
+  .meter__note { position: absolute; bottom: -6px; left: 0; right: 0; text-align: center; font-size: 12px; color: var(--faint); }
+
+  /* ── Secciones ─────────────────────────────────────────────────────── */
+  section.block { padding: 96px 0; border-top: 1px solid var(--line); }
+  .sec-head { max-width: 720px; margin-bottom: 48px; }
+  .sec-kicker { font-family: var(--mono); font-size: 13px; color: var(--blue-soft); margin-bottom: 12px; }
+  h2 { font-size: clamp(30px, 4vw, 44px); line-height: 1.1; letter-spacing: -0.025em; margin: 0 0 16px; font-weight: 800; text-wrap: balance; }
+  .sec-head p { color: var(--muted); font-size: 17px; margin: 0; }
+  h3 { margin: 0 0 8px; font-size: 18px; letter-spacing: -0.01em; }
+
+  .card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01)), var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 24px;
+  }
+
+  /* ── Demo ──────────────────────────────────────────────────────────── */
+  .demo { display: grid; grid-template-columns: 360px 1fr; gap: 28px; align-items: start; }
+  .demo__left { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .toolbar {
+    width: 100%; max-width: 340px; display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 14px; background: #1b1d22; border: 1px solid var(--line);
+  }
+  .toolbar__url { flex: 1; min-width: 0; height: 28px; border-radius: 999px; background: #2a2c31; color: #9aa0a6; font-size: 12px; display: flex; align-items: center; padding: 0 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .toolbar__ext { position: relative; width: 30px; height: 30px; border-radius: 8px; background: #2a2c31; display: grid; place-items: center; }
+  .toolbar__ext img { width: 18px; height: 18px; }
+  .toolbar__badge {
+    position: absolute; right: -8px; bottom: -6px; min-width: 22px; padding: 0 4px; height: 15px; border-radius: 4px;
+    background: #4285f4; color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center;
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+  }
+  .demo__caption { font-size: 13px; color: var(--faint); text-align: center; max-width: 340px; margin: 0; }
+
+  .inside { display: grid; gap: 20px; }
+  .tone { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+  .tone__text { flex: 1; min-width: 220px; }
+  .tone__text p { margin: 0; color: var(--muted); font-size: 14px; }
+  .tone__warn { color: var(--amber) !important; font-size: 13px !important; margin-top: 4px !important; }
+  .eqchart { width: 100%; height: auto; display: block; }
+  .eqchart text { font-family: var(--mono); font-size: 11px; fill: var(--faint); }
+  .eqchart .grid { stroke: rgba(148,163,184,0.12); stroke-width: 1; }
+  .eqchart .zero { stroke: rgba(148,163,184,0.35); stroke-dasharray: 4 4; }
+  .eqchart .curve { fill: none; stroke: var(--blue); stroke-width: 2.5; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(66,133,244,0.55)); }
+  .eqchart .area { fill: url(#eqFill); }
+  .chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chart-head h3 { margin: 0; }
+  .chart-head span { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+
+  .params { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .param { padding: 12px 14px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.03); border: 1px solid var(--line); }
+  .param__k { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .param__v { font-family: var(--mono); font-size: 16px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+  .param--on .param__v { color: var(--blue-soft); }
+
+  .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 40px; }
+  .shot { margin: 0; }
+  .shot a { display: block; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); transition: transform 200ms var(--ease), border-color 200ms; }
+  .shot a:hover { transform: translateY(-3px); border-color: var(--line-strong); }
+  .shot figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .shot figcaption code { color: var(--faint); }
+  .note { font-size: 13px; color: var(--faint); margin-top: 16px; }
+
+  /* ── Réplica del popup (estilos de popup.css, acotados a .sv) ────── */
+  .sv {
+    --bg: #202124; --card: #2d2f33; --card-hover: #34363b; --accent: #4285f4; --accent-hover: #5b95f5; --accent-active: #3367d6;
+    --text-primary: #ffffff; --text-secondary: #9aa0a6; --border: #3c4043; --danger: #f28b82; --danger-soft: rgba(242,139,130,0.15);
+    --r-lg: 16px; --r-md: 12px; --r-sm: 8px;
+    width: 320px; max-width: 100%; background: var(--bg); color: var(--text-primary);
+    font-family: 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: normal;
+    border-radius: 14px; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06);
+    display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; text-align: left;
+    transition: background 250ms var(--ease), color 250ms var(--ease);
+  }
+  .sv[data-theme='light'] {
+    --bg: #f8f9fa; --card: #ffffff; --card-hover: #f1f3f4; --accent: #1a73e8; --accent-hover: #4285f4; --accent-active: #185abc;
+    --text-primary: #202124; --text-secondary: #5f6368; --border: #dadce0; --danger: #d93025; --danger-soft: rgba(217,48,37,0.1);
+  }
+  .sv p { margin: 0; }
+  .sv button { font-family: inherit; }
+  .sv__header { display: flex; align-items: center; justify-content: space-between; }
+  .sv__brand { display: flex; align-items: center; gap: 8px; }
+  .sv__brand svg { width: 24px; height: 24px; fill: var(--accent); }
+  .sv__title { margin: 0; font-size: 16px; font-weight: 600; }
+  .sv__actions { display: flex; align-items: center; gap: 8px; }
+  .sv__version { font-size: 11px; color: var(--text-secondary); }
+  .sv-iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: none; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 10px; font-weight: 700; transition: background 150ms, color 150ms; }
+  .sv-iconbtn:hover { background: var(--card-hover); color: var(--text-primary); }
+  .sv-iconbtn svg { width: 16px; height: 16px; fill: currentColor; }
+  .sv-card { background: var(--card); border-radius: var(--r-lg); padding: 9px 14px; }
+  .sv-site { display: flex; align-items: center; gap: 10px; }
+  .sv-site__fav { width: 28px; height: 28px; border-radius: var(--r-sm); background: var(--bg); display: grid; place-items: center; flex-shrink: 0; }
+  .sv-site__fav svg { width: 18px; height: 18px; fill: var(--text-secondary); }
+  .sv-site__info { min-width: 0; flex: 1; }
+  .sv-site__title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sv-site__domain { margin-top: 2px !important; font-size: 12px; color: var(--text-secondary); }
+  .sv-vol__row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+  .sv-vol__label { font-size: 13px; color: var(--text-secondary); }
+  .sv-vol__value { font-size: 20px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; transition: color 150ms; }
+  .sv-vol__value.boosted { color: #fbbc04; }
+  .sv-vol__value.muted { color: var(--danger); }
+  .sv-vol__scale { display: flex; justify-content: space-between; margin-top: 6px; font-size: 10px; color: var(--text-secondary); }
+  .sv-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 999px; outline: none; cursor: pointer; margin: 6px 0; background: linear-gradient(to right, var(--accent) 0%, var(--accent) 16.66%, var(--border) 16.66%); }
+  .sv-slider:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 4px; }
+  .sv-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); border: 3px solid var(--text-primary); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.5); transition: transform 150ms; }
+  .sv-slider:hover::-webkit-slider-thumb { transform: scale(1.15); }
+  .sv-slider:active::-webkit-slider-thumb { transform: scale(1.25); background: var(--accent-active); }
+  .sv-slider::-moz-range-track { height: 6px; border-radius: 999px; background: var(--border); }
+  .sv-slider::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--accent); }
+  .sv-slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); border: 3px solid var(--text-primary); cursor: pointer; }
+  .sv-slider--compact { height: 5px; }
+  .sv-slider--compact::-webkit-slider-thumb { width: 14px; height: 14px; border-width: 2px; }
+  .sv-btns { display: flex; gap: 10px; }
+  .sv-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 12px; border-radius: var(--r-md); font-size: 13px; font-weight: 600; color: var(--text-primary); cursor: pointer; background: var(--card); border: 1px solid var(--border); transition: background 150ms, transform 150ms, border-color 150ms; }
+  .sv-btn:hover { background: var(--card-hover); border-color: var(--accent); }
+  .sv-btn:active { transform: scale(0.96); }
+  .sv-btn svg { width: 20px; height: 20px; fill: currentColor; }
+  .sv-btn[aria-pressed='true'] { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+  .sv-label { margin: 0 0 8px !important; font-size: 13px; color: var(--text-secondary); }
+  .sv-seg { display: flex; gap: 6px; }
+  .sv-seg button { flex: 1; padding: 7px 4px; border: 1px solid var(--border); border-radius: var(--r-md); background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 600; line-height: 1.2; cursor: pointer; transition: background 150ms, color 150ms, border-color 150ms; }
+  .sv-seg--modes button { font-size: 11px; }
+  .sv-seg button:hover { background: var(--card-hover); color: var(--text-primary); }
+  .sv-seg button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .sv-divide { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .sv-desc { margin: 6px 0 0 !important; font-size: 10px; color: var(--text-secondary); text-align: center; }
+  .sv-int__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font-size: 12px; color: var(--text-secondary); }
+  .sv-int__head span { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .sv-switch-row { display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 13px; }
+  .sv-switch-row + .sv-switch-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .sv-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+  .sv-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+  .sv-switch__track { position: absolute; inset: 0; background: var(--border); border-radius: 999px; transition: background 250ms; }
+  .sv-switch__thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-primary); transition: transform 250ms var(--ease); }
+  .sv-switch input:checked ~ .sv-switch__track { background: var(--accent); }
+  .sv-switch input:checked ~ .sv-switch__track .sv-switch__thumb { transform: translateX(16px); }
+  .sv-switch input:focus-visible ~ .sv-switch__track { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+  .sv-footer { min-height: 14px; text-align: center; font-size: 11px; color: var(--text-secondary); }
+  .sv .hidden { display: none !important; }
+
+  /* ── Problema / solución ───────────────────────────────────────────── */
+  .ps { display: grid; gap: 14px; }
+  .ps__row { display: grid; grid-template-columns: 1fr 44px 1fr; gap: 14px; align-items: stretch; }
+  .ps__cell { padding: 20px 22px; border-radius: var(--radius); border: 1px solid var(--line); }
+  .ps__cell--p { background: rgba(242,139,130,0.05); }
+  .ps__cell--s { background: rgba(66,133,244,0.06); border-color: rgba(66,133,244,0.22); }
+  .ps__tag { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .ps__cell--p .ps__tag { color: var(--red); }
+  .ps__cell--s .ps__tag { color: var(--blue-soft); }
+  .ps__cell p { margin: 0; }
+  .ps__cell small { display: block; color: var(--faint); font-family: var(--mono); font-size: 12px; margin-top: 8px; }
+  .ps__arrow { display: grid; place-items: center; color: var(--faint); }
+  .ps__arrow svg { width: 24px; height: 24px; fill: currentColor; }
+
+  /* ── Funcionalidades ───────────────────────────────────────────────── */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .feature { position: relative; transition: transform 200ms var(--ease), border-color 200ms; }
+  .feature:hover { transform: translateY(-3px); border-color: rgba(66,133,244,0.35); }
+  .feature__icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: rgba(66,133,244,0.12); border: 1px solid rgba(66,133,244,0.25); margin-bottom: 16px; }
+  .feature__icon svg { width: 22px; height: 22px; fill: var(--blue-soft); }
+  .feature p { margin: 0 0 12px; color: var(--muted); font-size: 15px; }
+  .feature .benefit { font-size: 14px; color: var(--text); padding-top: 12px; border-top: 1px solid var(--line); margin: 0; }
+  .feature .benefit b { color: var(--blue-soft); font-weight: 700; }
+  .status { position: absolute; top: 22px; right: 22px; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(129,201,149,0.12); color: var(--green); border: 1px solid rgba(129,201,149,0.25); }
+  .notyet { margin-top: 24px; display: flex; gap: 12px; align-items: flex-start; padding: 18px 22px; border-radius: var(--radius); border: 1px dashed var(--line-strong); color: var(--muted); font-size: 14px; }
+  .notyet b { color: var(--text); }
+
+  /* ── Pasos ─────────────────────────────────────────────────────────── */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; counter-reset: s; list-style: none; padding: 0; margin: 0; }
+  .step { counter-increment: s; position: relative; }
+  .step::before {
+    content: counter(s, decimal-leading-zero); display: block; font-family: var(--mono); font-size: 13px; color: var(--blue-soft);
+    margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
+  }
+  .step p { margin: 0; color: var(--muted); font-size: 15px; }
+  .step code { color: var(--text); }
+
+  /* ── Tecnologías ───────────────────────────────────────────────────── */
+  .tech { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .tech__item { display: grid; grid-template-columns: 52px 1fr; gap: 16px; align-items: start; }
+  .tech__badge { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; font-family: var(--mono); font-weight: 500; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-strong); }
+  .tech__item p { margin: 0; color: var(--muted); font-size: 15px; }
+  .tech__item .where { margin-top: 8px; font-family: var(--mono); font-size: 12px; color: var(--faint); }
+
+  /* ── Arquitectura ──────────────────────────────────────────────────── */
+  .diagram-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius); }
+  .diagram { min-width: 760px; width: 100%; height: auto; display: block; }
+  .diagram .node rect { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 1.2; }
+  .diagram .node--key rect { stroke: rgba(66,133,244,0.6); }
+  .diagram .node text { fill: var(--text); font-family: var(--sans); font-size: 15px; font-weight: 700; }
+  .diagram .node .sub { fill: var(--faint); font-family: var(--mono); font-size: 11px; font-weight: 400; }
+  .diagram .edge { fill: none; stroke: rgba(122,167,255,0.7); stroke-width: 1.6; }
+  .diagram .edge--dash { stroke-dasharray: 5 5; stroke: rgba(148,163,184,0.55); }
+  .diagram .lbl { fill: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .diagram .lbl-bg { fill: var(--bg-2); }
+  .msgs { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .msgs code { padding: 5px 10px; border-radius: 8px; background: rgba(66,133,244,0.08); border: 1px solid rgba(66,133,244,0.2); color: var(--blue-soft); font-size: 12px; }
+
+  /* Cadena de señal (HTML, actualizada en vivo por la demo) */
+  .chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; margin-top: 28px; }
+  .chain__node { flex: 1 1 130px; padding: 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); transition: border-color 250ms, box-shadow 250ms, opacity 250ms; }
+  .chain__node.on { border-color: rgba(66,133,244,0.55); box-shadow: 0 0 0 1px rgba(66,133,244,0.25), 0 8px 30px -12px var(--blue-glow); }
+  .chain__node.off { opacity: 0.5; }
+  .chain__name { font-weight: 700; font-size: 14px; }
+  .chain__type { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .chain__val { font-family: var(--mono); font-size: 13px; color: var(--blue-soft); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .chain__arrow { display: grid; place-items: center; color: var(--faint); flex: 0 0 auto; }
+  .chain__arrow svg { width: 18px; height: 18px; fill: currentColor; }
+  .stage { flex: 2 1 280px; padding: 12px; border-radius: 16px; border: 1px dashed var(--line-strong); display: grid; gap: 8px; }
+  .stage__title { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .stage .chain__node { flex: none; padding: 10px 12px; }
+
+  /* ── Árbol ─────────────────────────────────────────────────────────── */
+  .tree-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 24px; align-items: start; }
+  .tree-grid > *, .demo > *, .install > *, .sec-grid > *, .tech > *, .hero__grid > * { min-width: 0; }
+  .tree { font-family: var(--mono); font-size: 13.5px; line-height: 1.85; margin: 0; white-space: pre; overflow-x: auto; color: var(--muted); }
+  .tree .d { color: var(--text); font-weight: 500; }
+  .tree .k { color: var(--blue-soft); }
+  .tree .c { color: var(--faint); }
+  .groups { display: grid; gap: 12px; }
+  .group { padding: 16px 18px; }
+  .group h3 { font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .group h3::before { content: ''; width: 8px; height: 8px; border-radius: 2px; background: var(--dot, var(--blue)); }
+  .group p { margin: 0; color: var(--muted); font-size: 14px; }
+  .group code { color: var(--text); }
+
+  /* ── Permisos ──────────────────────────────────────────────────────── */
+  .perm-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .perm-table th, .perm-table td { text-align: left; padding: 16px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .perm-table th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); font-weight: 700; }
+  .perm-table td:first-child code { color: var(--text); white-space: nowrap; }
+  .perm-table td { color: var(--muted); }
+  .pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill--ok { background: rgba(129,201,149,0.12); color: var(--green); }
+  .pill--warn { background: rgba(251,188,4,0.12); color: var(--amber); }
+  .sec-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 28px; }
+  .checklist { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .checklist li { display: flex; gap: 10px; color: var(--muted); font-size: 15px; }
+  .checklist svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 3px; }
+  .checklist--ok svg { fill: var(--green); }
+  .checklist--lim svg { fill: var(--amber); }
+
+  /* ── Instalación ───────────────────────────────────────────────────── */
+  .install { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .olist { list-style: none; counter-reset: i; padding: 0; margin: 0; display: grid; gap: 14px; }
+  .olist li { counter-increment: i; display: grid; grid-template-columns: 30px 1fr; gap: 12px; color: var(--muted); }
+  .olist li::before { content: counter(i); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: rgba(66,133,244,0.14); color: var(--blue-soft); font-weight: 700; font-size: 13px; }
+  .olist code { color: var(--text); }
+  .codeblock { position: relative; margin: 14px 0 0; }
+  .codeblock pre { margin: 0; padding: 44px 18px 16px; border-radius: 12px; background: #050810; border: 1px solid var(--line); font-family: var(--mono); font-size: 13px; color: #c9d4e8; overflow-x: auto; line-height: 1.7; }
+  .codeblock pre .c { color: var(--faint); }
+  .copy { position: absolute; top: 8px; right: 8px; padding: 5px 10px; font-size: 12px; font-weight: 700; font-family: var(--sans); border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--muted); cursor: pointer; }
+  .copy:hover { color: var(--text); }
+
+  /* ── Descarga ──────────────────────────────────────────────────────── */
+  .download {
+    display: flex; align-items: center; justify-content: space-between; gap: 28px; flex-wrap: wrap;
+    padding: 32px; border-radius: 24px; margin-bottom: 20px;
+    background: radial-gradient(600px 240px at 0% 0%, rgba(66,133,244,0.22), transparent 70%), var(--surface);
+    border: 1px solid rgba(66,133,244,0.35);
+  }
+  .download__info { display: flex; gap: 20px; align-items: center; min-width: 0; }
+  .download__info img { width: 72px; height: 72px; border-radius: 18px; flex-shrink: 0; box-shadow: 0 12px 40px -12px var(--blue-glow); }
+  .download__info h3 { font-size: 24px; margin: 0 0 4px; }
+  .download__meta { margin: 0; font-family: var(--mono); font-size: 13px; color: var(--blue-soft); }
+  .download__list { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
+  .download__actions { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+  .btn--lg { padding: 16px 28px; font-size: 17px; }
+  @media (max-width: 640px) {
+    .download { padding: 22px; }
+    .download__info { flex-direction: column; align-items: flex-start; }
+    .download__actions { width: 100%; }
+  }
+
+  /* ── Info / recursos ───────────────────────────────────────────────── */
+  .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .fact { background: var(--surface); padding: 20px 22px; }
+  .fact dt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); font-weight: 700; margin-bottom: 6px; }
+  .fact dd { margin: 0; font-weight: 700; }
+  .fact dd small { display: block; font-weight: 500; color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .resources { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 28px; }
+  .res { display: flex; gap: 14px; align-items: flex-start; text-decoration: none; color: var(--text); transition: border-color 200ms, transform 200ms var(--ease); }
+  .res:hover { border-color: rgba(66,133,244,0.4); transform: translateY(-2px); }
+  .res svg { width: 22px; height: 22px; fill: var(--blue-soft); flex-shrink: 0; margin-top: 2px; }
+  .res b { display: block; }
+  .res span { color: var(--muted); font-size: 14px; }
+  .res code { color: var(--faint); font-size: 12px; }
+
+  /* ── Footer ────────────────────────────────────────────────────────── */
+  footer { border-top: 1px solid var(--line); padding: 56px 0 40px; margin-top: 40px; }
+  .foot { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 32px; }
+  .foot p { color: var(--muted); font-size: 14px; max-width: 42ch; }
+  .foot h4 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); }
+  .foot ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .foot a { color: var(--muted); text-decoration: none; font-size: 14px; }
+  .foot a:hover { color: var(--text); }
+  .foot__bottom { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--faint); }
+
+  .totop {
+    position: fixed; right: 20px; bottom: 20px; z-index: 40; width: 46px; height: 46px; border-radius: 50%;
+    border: 1px solid var(--line-strong); background: rgba(15,23,41,0.9); color: var(--text); cursor: pointer;
+    display: grid; place-items: center; opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity 200ms, transform 200ms;
+  }
+  .totop.show { opacity: 1; transform: none; pointer-events: auto; }
+  .totop svg { width: 22px; height: 22px; fill: currentColor; }
+
+  /* ── Animación de entrada ──────────────────────────────────────────── */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity 600ms var(--ease), transform 600ms var(--ease); }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* ── Responsive ────────────────────────────────────────────────────── */
+  @media (max-width: 1080px) {
+    .nav__links a { padding: 8px 9px; font-size: 13px; }
+    .features { grid-template-columns: repeat(2, 1fr); }
+    .steps { grid-template-columns: repeat(2, 1fr); }
+    .facts { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 960px) {
+    .nav__toggle { display: inline-flex; }
+    .nav__cta { display: none; }
+    .nav__links {
+      position: absolute; top: 68px; left: 0; right: 0; flex-direction: column; gap: 0;
+      background: rgba(7,11,20,0.97); border-bottom: 1px solid var(--line); padding: 8px 16px 16px;
+      display: none;
+    }
+    .nav__links.open { display: flex; }
+    .nav__links a { padding: 12px; font-size: 15px; }
+    .hero__grid { grid-template-columns: 1fr; gap: 40px; }
+    .hero__visual { order: -1; }
+    .meter { width: min(320px, 100%); }
+    .demo { grid-template-columns: 1fr; }
+    .tree-grid, .install, .sec-grid, .tech { grid-template-columns: 1fr; }
+    .shots, .resources { grid-template-columns: 1fr 1fr; }
+    .foot { grid-template-columns: 1fr 1fr; }
+    .foot > :first-child { grid-column: 1 / -1; }
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 16px; }
+    .hero { padding: 48px 0 56px; }
+    section.block { padding: 72px 0; }
+    .features, .steps, .facts, .shots, .resources { grid-template-columns: 1fr; }
+    .ps__row { grid-template-columns: 1fr; gap: 8px; }
+    .ps__arrow { transform: rotate(90deg); height: 24px; }
+    .card { padding: 20px; }
+    .perm-table thead { display: none; }
+    .perm-table tr { display: block; border-bottom: 1px solid var(--line); padding: 12px 0; }
+    .perm-table td { display: block; border: none; padding: 4px 0; }
+    .chain__arrow { display: none; }
+    .foot { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<div class="ambient" aria-hidden="true"></div>
+
+<!-- ═════════════════════════ NAVEGACIÓN ═════════════════════════ -->
+<header class="nav">
+  <div class="wrap nav__inner">
+    <a class="brand" href="#inicio" aria-label="Super Volume, ir al inicio">
+      <img src="../icons/icon128.png" alt="" width="30" height="30" />
+      <span>Super Volume</span>
+    </a>
+    <button class="nav__toggle" id="navToggle" type="button" aria-expanded="false" aria-controls="navLinks" aria-label="Abrir menú">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </button>
+    <ul class="nav__links" id="navLinks">
+      <li><a href="#demo">Demo</a></li>
+      <li><a href="#funciones">Funciones</a></li>
+      <li><a href="#como-funciona">Cómo funciona</a></li>
+      <li><a href="#arquitectura">Arquitectura</a></li>
+      <li><a href="#permisos">Permisos</a></li>
+      <li><a href="#descargar">Descargar</a></li>
+    </ul>
+    <a class="btn btn--ghost btn--sm nav__cta" href="https://github.com/alvarosiles/super-volume" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.89-2.78.62-3.37-1.21-3.37-1.21-.46-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.05 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.31.1-2.73 0 0 .84-.28 2.75 1.05a9.36 9.36 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.42.2 2.47.1 2.73.64.72 1.03 1.63 1.03 2.75 0 3.92-2.34 4.79-4.57 5.04.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.81 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+      GitHub
+    </a>
+    <a class="btn btn--primary btn--sm nav__cta" href="#descargar">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+      Descargar
+    </a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ═════════════════════════ HERO ═════════════════════════ -->
+<section class="hero" id="inicio">
+  <div class="wrap hero__grid">
+    <div class="reveal">
+      <div class="eyebrow">Extensión para Chrome · Manifest V3</div>
+      <h1>Sube el volumen de cualquier pestaña hasta <span class="hot">600%</span></h1>
+      <p class="lede">
+        Super Volume enruta el <code>&lt;video&gt;</code> y el <code>&lt;audio&gt;</code> de la página
+        por un grafo de Web Audio API propio: amplificación, ecualizador de 3 bandas, refuerzo de voz y
+        graves, y modos de sonido virtual. Todo dentro del navegador, sin tocar el volumen del sistema
+        y sin enviar datos a ningún servidor.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn--primary" href="#descargar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          Descargar extensión
+        </a>
+        <a class="btn btn--ghost" href="#demo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          Probar la demo
+        </a>
+      </div>
+      <ul class="chips" aria-label="Características verificadas en el código">
+        <li class="chip"><b>v2.0.0</b> · manifest.json</li>
+        <li class="chip">Web Audio API</li>
+        <li class="chip">0 dependencias</li>
+        <li class="chip">Español / English</li>
+        <li class="chip">Licencia MIT</li>
+      </ul>
+    </div>
+
+    <div class="hero__visual reveal" aria-hidden="true">
+      <div class="meter">
+        <svg viewBox="0 0 200 200">
+          <defs>
+            <linearGradient id="arcGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#4285f4"/>
+              <stop offset="1" stop-color="#fbbc04"/>
+            </linearGradient>
+          </defs>
+          <circle cx="100" cy="100" r="86" fill="none" stroke="rgba(148,163,184,0.12)" stroke-width="10"
+                  stroke-dasharray="405.3 540.4" transform="rotate(135 100 100)" stroke-linecap="round"/>
+          <circle id="heroArc" cx="100" cy="100" r="86" fill="none" stroke="url(#arcGrad)" stroke-width="10"
+                  stroke-dasharray="0 540.4" transform="rotate(135 100 100)" stroke-linecap="round"
+                  style="filter: drop-shadow(0 0 6px rgba(66,133,244,0.6))"/>
+        </svg>
+        <div class="meter__center">
+          <img class="meter__icon" src="../icons/icon128.png" alt="" width="64" height="64" />
+          <div class="meter__value" id="heroValue">100%</div>
+          <div class="meter__label">GainNode · 0 – 600%</div>
+        </div>
+        <div class="meter__note">Sigue el volumen de la demo de abajo</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ DEMO ═════════════════════════ -->
+<section class="block" id="demo">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// demostración</div>
+      <h2>El popup, funcionando en esta página</h2>
+      <p>
+        Esta es una réplica del popup hecha con los estilos de <code>popup.css</code> y las mismas
+        constantes de <code>content.js</code>. No es la extensión. Al activar el tono de prueba, la réplica
+        construye el mismo grafo de Web Audio que <code>content.js</code> y lo aplica a un audio sintetizado
+        en tu navegador.
+      </p>
+    </div>
+
+    <div class="demo">
+      <div class="demo__left reveal">
+        <div class="toolbar" aria-hidden="true">
+          <div class="toolbar__url">presentación local · demo</div>
+          <div class="toolbar__ext">
+            <img src="../icons/icon32.png" alt="" width="18" height="18" />
+            <span class="toolbar__badge" id="demoBadge" hidden></span>
+          </div>
+        </div>
+
+        <!-- Réplica del popup (estructura de popup.html) -->
+        <div class="sv" id="sv" role="region" aria-label="Réplica interactiva del popup de Super Volume">
+          <div class="sv__header">
+            <div class="sv__brand">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.99-3.29-2.5-4.03v8.05c1.51-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+              <p class="sv__title">Super Volume</p>
+            </div>
+            <div class="sv__actions">
+              <button class="sv-iconbtn" id="svLang" type="button">A</button>
+              <button class="sv-iconbtn" id="svTheme" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path id="svThemePath" d="M12.3 3a9 9 0 109.4 12.9A9 9 0 0112.3 3z"/></svg>
+              </button>
+              <span class="sv__version">v2.0.0</span>
+            </div>
+          </div>
+
+          <div class="sv-card sv-site">
+            <div class="sv-site__fav" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3z"/></svg></div>
+            <div class="sv-site__info">
+              <p class="sv-site__title" data-t="demoTitle">Tono de prueba sintetizado</p>
+              <p class="sv-site__domain">demo.local</p>
+            </div>
+          </div>
+
+          <div class="sv-card">
+            <div class="sv-vol__row">
+              <label for="svSlider" class="sv-vol__label" data-t="volumeLabel">Volumen</label>
+              <span class="sv-vol__value" id="svValue">100%</span>
+            </div>
+            <input type="range" id="svSlider" class="sv-slider" min="0" max="600" step="5" value="100" />
+            <div class="sv-vol__scale" aria-hidden="true"><span>0%</span><span>100%</span><span>300%</span><span>600%</span></div>
+          </div>
+
+          <div class="sv-btns">
+            <button class="sv-btn" id="svReset" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6 0 2.97-2.16 5.44-5 5.92v2.02c3.95-.49 7-3.85 7-7.94 0-4.42-3.58-8-8-8zm-6 8c0-1.65.67-3.15 1.76-4.24L6.34 7.34C4.9 8.79 4 10.79 4 13c0 4.08 3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91z"/></svg>
+              <span data-t="btnReset">Reset</span>
+            </button>
+            <button class="sv-btn" id="svMute" type="button" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path id="svMutePath" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.99-3.29-2.5-4.03v8.05c1.51-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+              <span id="svMuteLabel">Mute</span>
+            </button>
+          </div>
+
+          <div class="sv-card">
+            <p class="sv-label" data-t="eqCardLabel">Ecualizador</p>
+            <div class="sv-seg" id="svPresets" role="group" aria-label="Preset de ecualizador">
+              <button type="button" data-preset="none" aria-pressed="true" data-t="eqPresetNone">Ninguno</button>
+              <button type="button" data-preset="cine" aria-pressed="false" data-t="eqPresetCine">Cine</button>
+              <button type="button" data-preset="musica" aria-pressed="false" data-t="eqPresetMusica">Música</button>
+              <button type="button" data-preset="juegos" aria-pressed="false" data-t="eqPresetJuegos">Juegos</button>
+            </div>
+            <label class="sv-switch-row sv-divide" for="svVoice">
+              <span>Voice Boost</span>
+              <span class="sv-switch"><input type="checkbox" id="svVoice" /><span class="sv-switch__track"><span class="sv-switch__thumb"></span></span></span>
+            </label>
+            <label class="sv-switch-row" for="svBass">
+              <span>Bass Boost</span>
+              <span class="sv-switch"><input type="checkbox" id="svBass" /><span class="sv-switch__track"><span class="sv-switch__thumb"></span></span></span>
+            </label>
+            <div class="sv-divide">
+              <p class="sv-label" data-t="surroundCardLabel" style="margin-bottom:6px!important">Modo de sonido</p>
+              <div class="sv-seg sv-seg--modes" id="svModes" role="group" aria-label="Modo de sonido">
+                <button type="button" data-mode="stereo" aria-pressed="true">Stereo 2.0</button>
+                <button type="button" data-mode="virtual21" aria-pressed="false">Virtual 2.1</button>
+                <button type="button" data-mode="virtual51" aria-pressed="false">Virtual 5.1</button>
+                <button type="button" data-mode="virtual71" aria-pressed="false">Virtual 7.1</button>
+              </div>
+              <p class="sv-desc" id="svModeDesc">Audio normal, sin procesamiento.</p>
+              <div class="sv-divide hidden" id="svIntRow">
+                <div class="sv-int__head"><label for="svInt" data-t="surroundIntensityLabel">Intensidad</label><span id="svIntVal">60%</span></div>
+                <input type="range" id="svInt" class="sv-slider sv-slider--compact" min="0" max="100" step="5" value="60" />
+              </div>
+            </div>
+          </div>
+
+          <div class="sv-card">
+            <label class="sv-switch-row" for="svRemember">
+              <span data-t="rememberLabel">Recordar volumen por sitio</span>
+              <span class="sv-switch"><input type="checkbox" id="svRemember" /><span class="sv-switch__track"><span class="sv-switch__thumb"></span></span></span>
+            </label>
+          </div>
+
+          <div class="sv-footer" id="svStatus" aria-live="polite"></div>
+        </div>
+        <p class="demo__caption">Réplica en HTML/CSS. En la extensión real los cambios se envían a <code>content.js</code> con <code>chrome.tabs.sendMessage</code>.</p>
+      </div>
+
+      <div class="inside">
+        <div class="card tone reveal">
+          <div class="tone__text">
+            <h3>Escuchar el efecto</h3>
+            <p>Genera en tu navegador un bucle corto (graves, acordes, percusión) y lo pasa por la misma cadena de nodos que usa la extensión.</p>
+            <p class="tone__warn">Baja el volumen de tus altavoces antes de subir el slider por encima de 100%.</p>
+          </div>
+          <button class="btn btn--primary" id="toneBtn" type="button" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path id="toneIcon" d="M8 5v14l11-7z"/></svg>
+            <span id="toneLabel">Reproducir tono de prueba</span>
+          </button>
+        </div>
+
+        <div class="card reveal">
+          <div class="chart-head">
+            <h3>Respuesta del ecualizador</h3>
+            <span id="eqSummary">bass 0 dB · mid 0 dB · treble 0 dB</span>
+          </div>
+          <svg class="eqchart" id="eqChart" viewBox="0 0 640 230" role="img" aria-label="Curva de respuesta en frecuencia del ecualizador según los ajustes actuales">
+            <defs>
+              <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#4285f4" stop-opacity="0.35"/>
+                <stop offset="1" stop-color="#4285f4" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <g id="eqGrid"></g>
+            <path class="area" id="eqArea" d=""/>
+            <path class="curve" id="eqCurve" d=""/>
+          </svg>
+          <p class="note" style="margin-top:8px">Calculada con <code>BiquadFilterNode.getFrequencyResponse()</code> sobre los tres filtros de <code>content.js</code>: lowshelf 150 Hz, peaking 2,5 kHz (Q 0,9) y highshelf 8 kHz.</p>
+        </div>
+
+        <div class="card reveal">
+          <h3 style="margin-bottom:14px">Parámetros del grafo en este momento</h3>
+          <div class="params" id="params"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="shots">
+      <figure class="shot reveal">
+        <a href="../store-assets/screenshot-1.png" target="_blank" rel="noopener"><img src="../store-assets/screenshot-1.png" alt="Popup de Super Volume sobre una página de video: volumen 250%, ecualizador Música y Bass Boost activo" loading="lazy" width="1280" height="800" /></a>
+        <figcaption>250% con preset Música y Bass Boost. <code>store-assets/screenshot-1.png</code></figcaption>
+      </figure>
+      <figure class="shot reveal">
+        <a href="../store-assets/screenshot-2.png" target="_blank" rel="noopener"><img src="../store-assets/screenshot-2.png" alt="Popup de Super Volume en estado silenciado, con el botón Unmute resaltado en rojo" loading="lazy" width="1280" height="800" /></a>
+        <figcaption>Mute: conserva el volumen previo. <code>store-assets/screenshot-2.png</code></figcaption>
+      </figure>
+      <figure class="shot reveal">
+        <a href="../store-assets/screenshot-3.png" target="_blank" rel="noopener"><img src="../store-assets/screenshot-3.png" alt="Imagen promocional: Sube el volumen hasta 600% junto al popup en tema oscuro" loading="lazy" width="1280" height="800" /></a>
+        <figcaption>Tema oscuro, 400%. <code>store-assets/screenshot-3.png</code></figcaption>
+      </figure>
+    </div>
+    <p class="note">Imágenes preparadas para la ficha de la Chrome Web Store (carpeta <code>store-assets/</code>). Son anteriores a la sección «Modo de sonido», que el popup actual sí incluye.</p>
+  </div>
+</section>
+
+<!-- ═════════════════════════ PROBLEMA / SOLUCIÓN ═════════════════════════ -->
+<section class="block" id="problema">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// por qué existe</div>
+      <h2>Cuando el volumen al máximo no alcanza</h2>
+      <p>Cada respuesta corresponde a algo que está implementado en el código.</p>
+    </div>
+    <div class="ps">
+      <div class="ps__row reveal">
+        <div class="ps__cell ps__cell--p"><div class="ps__tag">Problema</div><p>Un video suena bajísimo aunque el sistema ya esté al 100%.</p></div>
+        <div class="ps__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="ps__cell ps__cell--s"><div class="ps__tag">Solución</div><p>Un <code>GainNode</code> multiplica la señal de la pestaña de ×0 a ×6.</p><small>content.js · MAX_VOLUME_PERCENT = 600</small></div>
+      </div>
+      <div class="ps__row reveal">
+        <div class="ps__cell ps__cell--p"><div class="ps__tag">Problema</div><p>Subir el volumen del sistema afecta a todo lo demás que suena en el equipo.</p></div>
+        <div class="ps__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="ps__cell ps__cell--s"><div class="ps__tag">Solución</div><p>El procesamiento vive en el <code>AudioContext</code> de cada pestaña; el volumen del sistema no se toca.</p><small>popup.js · chrome.tabs.query({active, currentWindow})</small></div>
+      </div>
+      <div class="ps__row reveal">
+        <div class="ps__cell ps__cell--p"><div class="ps__tag">Problema</div><p>Los diálogos se pierden entre la música y los efectos.</p></div>
+        <div class="ps__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="ps__cell ps__cell--s"><div class="ps__tag">Solución</div><p>Voice Boost suma +10 dB en la banda de 2,5 kHz; el preset Cine también realza esa zona.</p><small>content.js · VOICE_BOOST_EXTRA_DB = 10</small></div>
+      </div>
+      <div class="ps__row reveal">
+        <div class="ps__cell ps__cell--p"><div class="ps__tag">Problema</div><p>Cada sitio necesita un nivel distinto y hay que reajustarlo en cada visita.</p></div>
+        <div class="ps__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="ps__cell ps__cell--s"><div class="ps__tag">Solución</div><p>«Recordar volumen por sitio» guarda el % por dominio y lo vuelve a aplicar al cargar la página, sin abrir el popup.</p><small>chrome.storage.local · volumes[domain]</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ FUNCIONES ═════════════════════════ -->
+<section class="block" id="funciones">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// funcionalidades</div>
+      <h2>Lo que hace, comprobado en el código</h2>
+      <p>Cada tarjeta indica el archivo donde está implementada.</p>
+    </div>
+    <div class="features">
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.99-3.29-2.5-4.03v8.05c1.51-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></div>
+        <h3>Amplificación hasta 600%</h3>
+        <p>Slider de 0 a 600% en pasos de 5. Los cambios usan <code>setTargetAtTime</code> para evitar chasquidos al arrastrar.</p>
+        <p class="benefit"><b>Para ti:</b> audio audible en videos grabados con nivel muy bajo.</p>
+      </article>
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg></div>
+        <h3>Reset y Mute</h3>
+        <p>Reset vuelve a 100%. Mute lleva la ganancia a 0 y guarda el volumen previo para restaurarlo al desmutear.</p>
+        <p class="benefit"><b>Para ti:</b> silencio inmediato sin perder tu ajuste.</p>
+      </article>
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z"/></svg></div>
+        <h3>Ecualizador con presets</h3>
+        <p>Tres bandas (graves, medios, agudos) con presets Ninguno, Cine (+6/+7/−1 dB), Música (+5/+1/+4) y Juegos (+3/+2/+7).</p>
+        <p class="benefit"><b>Para ti:</b> un perfil de sonido según lo que estés viendo.</p>
+      </article>
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></div>
+        <h3>Voice Boost y Bass Boost</h3>
+        <p>Dos interruptores independientes que se suman al preset activo: +10 dB en medios y +9 dB en graves.</p>
+        <p class="benefit"><b>Para ti:</b> diálogos más claros o graves más presentes sin cambiar de preset.</p>
+      </article>
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 100 18 9 9 0 000-18zm0 16a7 7 0 110-14 7 7 0 010 14zm0-11a4 4 0 100 8 4 4 0 000-8zm0 6a2 2 0 110-4 2 2 0 010 4z"/></svg></div>
+        <h3>Modos de sonido virtual</h3>
+        <p>Stereo 2.0, Virtual 2.1, 5.1 y 7.1. Los modos 5.1/7.1 combinan cross-feed invertido, retardo Haas y una reverb sintética. 7.1 tiene intensidad ajustable.</p>
+        <p class="benefit"><b>Para ti:</b> una imagen estéreo más amplia con auriculares o altavoces normales.</p>
+      </article>
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg></div>
+        <h3>Recuerda el volumen por sitio</h3>
+        <p>Guarda el % por dominio (sin «www.») y <code>content.js</code> lo reaplica al cargar. El badge del icono muestra el % activo.</p>
+        <p class="benefit"><b>Para ti:</b> cada sitio suena como lo dejaste.</p>
+      </article>
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></div>
+        <h3>Detección automática y SPA</h3>
+        <p>Inyectado en todos los frames. Un <code>MutationObserver</code> conecta los <code>&lt;video&gt;</code>/<code>&lt;audio&gt;</code> que aparecen después de cargar la página.</p>
+        <p class="benefit"><b>Para ti:</b> el ajuste se mantiene al pasar al siguiente video.</p>
+      </article>
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2v16a8 8 0 010-16z"/></svg></div>
+        <h3>Tema e idioma</h3>
+        <p>Tema automático, claro u oscuro. Idioma automático, English o Español, leído de <code>_locales/</code>.</p>
+        <p class="benefit"><b>Para ti:</b> la interfaz se adapta a tu sistema y a tu idioma.</p>
+      </article>
+      <article class="card feature reveal">
+        <span class="status">Implementado</span>
+        <div class="feature__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg></div>
+        <h3>Creación perezosa del audio</h3>
+        <p>El <code>AudioContext</code> solo se crea cuando hay medios en la página y algún ajuste distinto del valor por defecto.</p>
+        <p class="benefit"><b>Para ti:</b> las pestañas que no tocas no gastan CPU extra.</p>
+      </article>
+    </div>
+    <div class="notyet reveal">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="#fbbc04" aria-hidden="true" style="flex-shrink:0;margin-top:2px"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+      <div><b>No implementado todavía.</b> Las notas del proyecto (<code>strcuture.md</code>) mencionan atajos de teclado y un ecualizador de 10 bandas como ideas. No hay código para ninguna de las dos en la versión actual.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ CÓMO FUNCIONA ═════════════════════════ -->
+<section class="block" id="como-funciona">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// flujo de uso</div>
+      <h2>De un clic a la señal amplificada</h2>
+      <p>El recorrido real de una interacción, según <code>popup.js</code> y <code>content.js</code>.</p>
+    </div>
+    <ol class="steps">
+      <li class="card step reveal">
+        <h3>Abres una página con audio</h3>
+        <p><code>content.js</code> ya está inyectado y observa el DOM, pero aún no crea ningún <code>AudioContext</code>. Si recordaste un volumen para ese dominio, lo aplica ahí mismo.</p>
+      </li>
+      <li class="card step reveal">
+        <h3>Abres el popup</h3>
+        <p>Muestra favicon, título y dominio de la pestaña y pide el estado con <code>SV_GET_STATE</code>, primero al frame principal y luego a todos los frames.</p>
+      </li>
+      <li class="card step reveal">
+        <h3>Ajustas un control</h3>
+        <p>El popup envía <code>SV_SET_*</code>. <code>content.js</code> crea el grafo si hace falta, conecta los elementos y ajusta las ganancias de forma suave.</p>
+      </li>
+      <li class="card step reveal">
+        <h3>Queda guardado</h3>
+        <p>El badge muestra el %. Con «recordar» activo, el volumen se guarda por dominio tras 300 ms de espera; EQ y modo se guardan como preferencias globales.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═════════════════════════ TECNOLOGÍAS ═════════════════════════ -->
+<section class="block" id="tecnologias">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// stack</div>
+      <h2>Tecnologías utilizadas</h2>
+      <p>Solo APIs nativas del navegador. Sin frameworks, sin <code>package.json</code> y sin dependencias en tiempo de ejecución.</p>
+    </div>
+    <div class="tech">
+      <div class="card tech__item reveal">
+        <div class="tech__badge">MV3</div>
+        <div><h3>Chrome Extensions · Manifest V3</h3><p>Service worker, content scripts, <code>action</code> con badge, <code>storage</code>, <code>tabs</code>, mensajería de <code>runtime</code> e <code>i18n</code>. Chrome 102 como mínimo.</p><div class="where">manifest.json · background.js · popup.js</div></div>
+      </div>
+      <div class="card tech__item reveal">
+        <div class="tech__badge">WA</div>
+        <div><h3>Web Audio API</h3><p><code>AudioContext</code>, <code>MediaElementAudioSourceNode</code>, <code>BiquadFilterNode</code> ×3, <code>GainNode</code>, <code>ChannelSplitter</code>/<code>Merger</code>, <code>DelayNode</code> y <code>ConvolverNode</code>.</p><div class="where">content.js · ensureAudioGraph()</div></div>
+      </div>
+      <div class="card tech__item reveal">
+        <div class="tech__badge">JS</div>
+        <div><h3>JavaScript nativo</h3><p>IIFE en modo estricto, <code>async/await</code>, <code>MutationObserver</code> y <code>WeakMap</code> para los nodos de origen. Sin transpilar ni empaquetar.</p><div class="where">content.js · popup.js · background.js</div></div>
+      </div>
+      <div class="card tech__item reveal">
+        <div class="tech__badge">H/C</div>
+        <div><h3>HTML5 y CSS3</h3><p>Popup de 320 px con variables CSS, tema por <code>prefers-color-scheme</code> o <code>data-theme</code>, e iconos SVG en línea. Sin fuentes externas.</p><div class="where">popup.html · popup.css</div></div>
+      </div>
+      <div class="card tech__item reveal">
+        <div class="tech__badge">PS</div>
+        <div><h3>Scripts de build y prueba</h3><p>PowerShell y Bash validan el manifest, los locales y la sintaxis (<code>node --check</code> si está disponible) y empaquetan con <code>System.IO.Compression</code>. Un cargador CDP abre Chrome con la extensión en un perfil aislado.</p><div class="where">scripts/3-build.ps1 · 3-build.sh · 2-test-extension.sh</div></div>
+      </div>
+      <div class="card tech__item reveal">
+        <div class="tech__badge">PY</div>
+        <div><h3>Python + Pillow</h3><p>Solo para desarrollo: dibuja el glifo del altavoz en alta resolución y genera los iconos de 16, 32, 48 y 128 px en azul #4285F4.</p><div class="where">gen_icons.py → icons/</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ ARQUITECTURA ═════════════════════════ -->
+<section class="block" id="arquitectura">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// arquitectura</div>
+      <h2>Cómo se comunican las piezas</h2>
+      <p>Solo aparecen las conexiones que existen en el código. <code>background.js</code> no toca el audio: inicializa valores por defecto y mantiene el badge.</p>
+    </div>
+
+    <div class="card reveal" style="padding:16px">
+      <div class="diagram-wrap">
+        <svg class="diagram" viewBox="0 0 960 560" role="img" aria-labelledby="archTitle archDesc">
+          <title id="archTitle">Diagrama de componentes de Super Volume</title>
+          <desc id="archDesc">El usuario usa el popup. El popup intercambia mensajes con content.js, lee y escribe chrome.storage.local y actualiza el badge. background.js lee el storage y actualiza el badge al cambiar de pestaña. content.js lee el storage al iniciar, observa los elementos de la página y construye el grafo de Web Audio, que sale por los altavoces.</desc>
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="rgba(122,167,255,0.85)"/></marker>
+            <marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="rgba(148,163,184,0.7)"/></marker>
+          </defs>
+
+          <!-- aristas -->
+          <path class="edge" d="M190 70 H322" marker-end="url(#ah)"/>
+          <path class="edge" d="M560 70 H712" marker-end="url(#ah)"/>
+          <path class="edge" d="M445 112 V222" marker-start="url(#ah)" marker-end="url(#ah)"/>
+          <path class="edge" d="M380 112 V160 H140 V222" marker-start="url(#ah)" marker-end="url(#ah)"/>
+          <path class="edge" d="M330 268 H248" marker-end="url(#ah)"/>
+          <path class="edge" d="M712 268 H568" marker-start="url(#ah)" marker-end="url(#ah)"/>
+          <path class="edge" d="M820 228 V112" marker-end="url(#ah)"/>
+          <path class="edge" d="M140 312 V412" marker-end="url(#ah)"/>
+          <path class="edge" d="M330 455 H248" marker-end="url(#ah)"/>
+          <path class="edge edge--dash" d="M240 300 Q 330 330 395 412" marker-end="url(#ahg)"/>
+          <path class="edge" d="M140 498 V530 H820 V500" marker-end="url(#ah)"/>
+
+          <!-- etiquetas -->
+          <g class="lbl"><rect class="lbl-bg" x="204" y="44" width="104" height="18" rx="4"/><text x="256" y="57" text-anchor="middle">clic / ajustes</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="572" y="44" width="128" height="18" rx="4"/><text x="636" y="57" text-anchor="middle">action.setBadgeText</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="452" y="158" width="96" height="18" rx="4"/><text x="500" y="171" text-anchor="middle">set / get</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="150" y="134" width="200" height="18" rx="4"/><text x="250" y="147" text-anchor="middle">tabs.sendMessage SV_*</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="252" y="236" width="70" height="18" rx="4"/><text x="287" y="249" text-anchor="middle">get (init)</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="580" y="236" width="122" height="18" rx="4"/><text x="641" y="249" text-anchor="middle">get · onInstalled</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="828" y="160" width="124" height="18" rx="4"/><text x="890" y="173" text-anchor="middle">onActivated/Updated</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="148" y="352" width="190" height="18" rx="4"/><text x="243" y="365" text-anchor="middle">createMediaElementSource</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="300" y="318" width="120" height="18" rx="4"/><text x="360" y="331" text-anchor="middle">MutationObserver</text></g>
+          <g class="lbl"><rect class="lbl-bg" x="420" y="521" width="120" height="18" rx="4"/><text x="480" y="534" text-anchor="middle">destination</text></g>
+
+          <!-- nodos -->
+          <g class="node"><rect x="40" y="40" width="150" height="60" rx="14"/><text x="115" y="68" text-anchor="middle">Usuario</text><text class="sub" x="115" y="86" text-anchor="middle">pestaña activa</text></g>
+          <g class="node node--key"><rect x="330" y="28" width="230" height="84" rx="14"/><text x="445" y="62" text-anchor="middle">Popup</text><text class="sub" x="445" y="82" text-anchor="middle">popup.html · popup.css · popup.js</text></g>
+          <g class="node"><rect x="720" y="40" width="200" height="72" rx="14"/><text x="820" y="70" text-anchor="middle">Badge del icono</text><text class="sub" x="820" y="90" text-anchor="middle">% activo · #4285F4</text></g>
+          <g class="node"><rect x="330" y="230" width="230" height="76" rx="14"/><text x="445" y="262" text-anchor="middle">chrome.storage.local</text><text class="sub" x="445" y="282" text-anchor="middle">volumes · preferencias</text></g>
+          <g class="node"><rect x="720" y="230" width="200" height="76" rx="14"/><text x="820" y="262" text-anchor="middle">background.js</text><text class="sub" x="820" y="282" text-anchor="middle">service worker</text></g>
+          <g class="node node--key"><rect x="40" y="230" width="200" height="80" rx="14"/><text x="140" y="262" text-anchor="middle">content.js</text><text class="sub" x="140" y="282" text-anchor="middle">all_frames · &lt;all_urls&gt;</text></g>
+          <g class="node node--key"><rect x="40" y="420" width="200" height="78" rx="14"/><text x="140" y="452" text-anchor="middle">Grafo Web Audio</text><text class="sub" x="140" y="472" text-anchor="middle">EQ → espacial → Gain</text></g>
+          <g class="node"><rect x="330" y="420" width="230" height="78" rx="14"/><text x="445" y="452" text-anchor="middle">&lt;video&gt; / &lt;audio&gt;</text><text class="sub" x="445" y="472" text-anchor="middle">elementos de la página</text></g>
+          <g class="node"><rect x="720" y="420" width="200" height="78" rx="14"/><text x="820" y="452" text-anchor="middle">Altavoces</text><text class="sub" x="820" y="472" text-anchor="middle">salida del navegador</text></g>
+        </svg>
+      </div>
+      <div class="msgs" aria-label="Mensajes que entiende content.js">
+        <code>SV_GET_STATE</code><code>SV_SET_VOLUME</code><code>SV_SET_MUTED</code><code>SV_SET_EQ_PRESET</code><code>SV_SET_BASS_BOOST</code><code>SV_SET_VOICE_BOOST</code><code>SV_SET_SURROUND_MODE</code><code>SV_SET_SURROUND_INTENSITY</code>
+      </div>
+    </div>
+
+    <div class="reveal" style="margin-top:56px">
+      <h3 style="font-size:22px">Cadena de señal dentro de cada pestaña</h3>
+      <p style="color:var(--muted);margin:0;max-width:70ch">La estructura se crea una sola vez. Cambiar de modo solo mueve ganancias, sin reconectar nodos. Los nodos resaltados son los que están activos según la demo de arriba.</p>
+      <div class="chain" id="chain">
+        <div class="chain__node on"><div class="chain__name">&lt;video&gt;/&lt;audio&gt;</div><div class="chain__type">MediaElementSource</div></div>
+        <div class="chain__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="chain__node" data-n="bass"><div class="chain__name">Graves</div><div class="chain__type">lowshelf · 150 Hz</div><div class="chain__val" data-v="bass">0 dB</div></div>
+        <div class="chain__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="chain__node" data-n="mid"><div class="chain__name">Medios</div><div class="chain__type">peaking · 2,5 kHz</div><div class="chain__val" data-v="mid">0 dB</div></div>
+        <div class="chain__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="chain__node" data-n="treble"><div class="chain__name">Agudos</div><div class="chain__type">highshelf · 8 kHz</div><div class="chain__val" data-v="treble">0 dB</div></div>
+        <div class="chain__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="stage">
+          <div class="stage__title">etapa espacial (3 rutas en paralelo)</div>
+          <div class="chain__node" data-n="dry"><div class="chain__name">Seca</div><div class="chain__type">dryGain · sin procesar</div></div>
+          <div class="chain__node" data-n="wide"><div class="chain__name">Amplia</div><div class="chain__type">splitter → cross-feed (−) + delay → merger</div><div class="chain__val" data-v="wide">—</div></div>
+          <div class="chain__node" data-n="rev"><div class="chain__name">Reverb</div><div class="chain__type">ConvolverNode · impulso sintético 1,2 s</div><div class="chain__val" data-v="rev">wet 0</div></div>
+        </div>
+        <div class="chain__arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></div>
+        <div class="chain__node" data-n="gain"><div class="chain__name">Volumen</div><div class="chain__type">GainNode · 0–6</div><div class="chain__val" data-v="gain">×1.00</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ ESTRUCTURA ═════════════════════════ -->
+<section class="block" id="estructura">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// estructura</div>
+      <h2>Organización del proyecto</h2>
+      <p>Archivos reales del repositorio, agrupados por responsabilidad. Se omiten notas personales y borradores.</p>
+    </div>
+    <div class="tree-grid">
+      <div class="card reveal">
+<pre class="tree"><span class="d">super-volume/</span>
+├── <span class="k">manifest.json</span>        <span class="c"># MV3 · v2.0.0 · permisos</span>
+├── <span class="k">background.js</span>        <span class="c"># service worker: badge + defaults</span>
+├── <span class="k">content.js</span>           <span class="c"># grafo Web Audio (610 líneas)</span>
+├── <span class="k">popup.html</span>           <span class="c"># interfaz del popup</span>
+├── <span class="k">popup.css</span>            <span class="c"># tema claro/oscuro</span>
+├── <span class="k">popup.js</span>             <span class="c"># UI, storage, mensajería</span>
+├── <span class="d">_locales/</span>
+│   ├── en/messages.json
+│   └── es/messages.json <span class="c"># idioma por defecto</span>
+├── <span class="d">icons/</span>               <span class="c"># 16 · 32 · 48 · 128 px</span>
+├── gen_icons.py         <span class="c"># genera icons/ (Pillow)</span>
+├── <span class="d">scripts/</span>
+│   ├── 1-install.sh
+│   ├── 2-test-extension.sh
+│   ├── 3-build.sh / 3-build.ps1
+│   └── _cdp_loader.js / .py
+├── <span class="d">store-assets/</span>        <span class="c"># capturas, promo, marquesina</span>
+├── <span class="d">docs/</span>
+│   ├── index.html       <span class="c"># landing (GitHub Pages)</span>
+│   └── privacy.html     <span class="c"># política de privacidad</span>
+├── <span class="d">dist/</span>                <span class="c"># .zip generados (ignorado por git)</span>
+├── <span class="d">presentacion web/</span>    <span class="c"># esta página</span>
+├── README.md · PUBLISHING.md · AUDITORIA.md
+└── LICENSE              <span class="c"># MIT</span></pre>
+      </div>
+      <div class="groups">
+        <div class="card group reveal" style="--dot:#4285f4"><h3>Interfaz y lógica del popup</h3><p><code>popup.html</code>, <code>popup.css</code> y <code>popup.js</code>: estado de la pestaña, controles, tema, idioma, badge y persistencia.</p></div>
+        <div class="card group reveal" style="--dot:#fbbc04"><h3>Integración con la página y audio</h3><p><code>content.js</code>: detecta medios, construye el grafo, responde mensajes y reaplica preferencias guardadas.</p></div>
+        <div class="card group reveal" style="--dot:#81c995"><h3>Segundo plano</h3><p><code>background.js</code>: valores por defecto al instalar y badge al cambiar o recargar pestañas.</p></div>
+        <div class="card group reveal" style="--dot:#f28b82"><h3>Recursos y traducciones</h3><p><code>icons/</code>, <code>_locales/</code> (46 claves por idioma) y <code>store-assets/</code> para la ficha de la tienda.</p></div>
+        <div class="card group reveal" style="--dot:#9aa6bb"><h3>Build, prueba y publicación</h3><p><code>scripts/</code>, <code>PUBLISHING.md</code>, <code>AUDITORIA.md</code> y <code>docs/</code>. El build empaqueta solo los 12 archivos de ejecución.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ PERMISOS ═════════════════════════ -->
+<section class="block" id="permisos">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// permisos y seguridad</div>
+      <h2>Qué pide y para qué</h2>
+      <p>Permisos declarados en <code>manifest.json</code>, contrastados con su uso en el código.</p>
+    </div>
+    <div class="card reveal" style="padding:8px 18px">
+      <table class="perm-table">
+        <thead><tr><th>Permiso</th><th>Para qué se usa</th><th>Uso en el código</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>storage</code></td>
+            <td>Guardar volumen por dominio, «recordar», preset, boosts, modo de sonido, intensidad, tema e idioma.</td>
+            <td><span class="pill pill--ok">Usado</span><br/><small class="mono">popup.js · content.js · background.js</small></td>
+          </tr>
+          <tr>
+            <td><code>host_permissions: &lt;all_urls&gt;</code></td>
+            <td>Inyectar <code>content.js</code> en cualquier sitio (y en sus iframes) para encontrar y procesar sus medios. También permite leer título, URL y favicon de la pestaña.</td>
+            <td><span class="pill pill--ok">Usado</span><br/><small class="mono">manifest content_scripts</small></td>
+          </tr>
+          <tr>
+            <td><code>activeTab</code></td>
+            <td>Acceso temporal a la pestaña activa al abrir el popup. Con <code>&lt;all_urls&gt;</code> declarado, no verifiqué si sigue siendo imprescindible.</td>
+            <td><span class="pill pill--warn">Declarado</span><br/><small class="mono">el popup usa tabs.query</small></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="sec-grid">
+      <div class="card reveal">
+        <h3>Medidas observadas en el código</h3>
+        <ul class="checklist checklist--ok">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span>Sin <code>eval</code>, <code>new Function</code> ni scripts remotos. El único <code>fetch</code> lee los <code>messages.json</code> de la propia extensión.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span>No usa <code>tabCapture</code> ni envía audio o datos a servidores.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span>Valida y acota los valores recibidos (volumen 0–600, intensidad 0–100, presets y modos contra listas cerradas).</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span>Evita la doble inyección y marca con <code>data-sv-skip</code> los elementos que no se pueden conectar, para no romper la página.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span>En páginas sin content script (<code>chrome://</code>, la tienda, PDFs) el popup desactiva los controles.</span></li>
+        </ul>
+      </div>
+      <div class="card reveal">
+        <h3>Limitaciones conocidas</h3>
+        <ul class="checklist checklist--lim">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg><span>Medios de otro origen sin cabeceras CORS, o ya conectados a otro <code>AudioContext</code>, se ignoran.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg><span>Ganancias muy altas pueden distorsionar: no hay compresor ni limitador en la cadena.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg><span>Solo el volumen se recuerda por sitio. Preset, boosts y modo de sonido son globales.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg><span>Los modos 5.1/7.1 son virtuales: ensanchan una salida estéreo, no generan canales físicos.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg><span>Una vez que un elemento entra al grafo, sigue pasando por él hasta recargar la página.</span></li>
+        </ul>
+      </div>
+    </div>
+    <p class="note reveal">Esta sección describe lo observado en el código fuente; no equivale a una auditoría de seguridad independiente.</p>
+  </div>
+</section>
+
+<!-- ═════════════════════════ DESCARGA ═════════════════════════ -->
+<section class="block" id="descargar">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// descarga</div>
+      <h2>Descarga la extensión</h2>
+      <p>Paquete generado con <code>scripts/3-build.ps1</code>: los 12 archivos que la extensión necesita para funcionar, sin scripts ni documentación.</p>
+    </div>
+    <div class="download reveal">
+      <div class="download__info">
+        <img src="../icons/icon128.png" alt="" width="72" height="72" />
+        <div>
+          <h3>Super Volume v2.0.0</h3>
+          <p class="download__meta">super-volume-v2.0.0.zip · 32 KB · Chrome 102+</p>
+          <p class="download__list">manifest.json · background.js · content.js · popup.html/css/js · icons/ · _locales/</p>
+        </div>
+      </div>
+      <div class="download__actions">
+        <a class="btn btn--primary btn--lg" href="descargas/super-volume-v2.0.0.zip" download>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          Descargar extensión
+        </a>
+        <a class="btn btn--ghost" href="https://github.com/alvarosiles/super-volume/archive/refs/heads/main.zip">
+          Código fuente (.zip de GitHub)
+        </a>
+      </div>
+    </div>
+    <ol class="steps steps--dl">
+      <li class="card step reveal"><h3>Descomprime</h3><p>Extrae el .zip en una carpeta que no vayas a borrar. Chrome carga la extensión desde ahí.</p></li>
+      <li class="card step reveal"><h3>Abre extensiones</h3><p>Ve a <code>chrome://extensions/</code> y activa el <b>Modo de desarrollador</b>.</p></li>
+      <li class="card step reveal"><h3>Carga la carpeta</h3><p>Pulsa <b>Cargar descomprimida</b> y elige la carpeta extraída, la que contiene <code>manifest.json</code>.</p></li>
+      <li class="card step reveal"><h3>Úsala</h3><p>Fija el icono en la barra, abre una pestaña con video o audio y mueve el slider.</p></li>
+    </ol>
+    <p class="note reveal">Chrome no instala archivos .zip arrastrándolos: siempre hay que descomprimir primero. La extensión no está confirmada como publicada en la Chrome Web Store, por eso la instalación es en modo desarrollador.</p>
+  </div>
+</section>
+
+<!-- ═════════════════════════ INSTALACIÓN ═════════════════════════ -->
+<section class="block" id="instalacion">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// desde el código</div>
+      <h2>Instalar desde el repositorio</h2>
+      <p>Si clonas el proyecto, la extensión se carga desde la <b>raíz del proyecto</b>, la carpeta que contiene <code>manifest.json</code>. No necesita compilarse para usarse.</p>
+    </div>
+    <div class="install">
+      <div class="card reveal">
+        <h3 style="margin-bottom:18px">Modo desarrollador</h3>
+        <ol class="olist">
+          <li><span>Descarga o clona el repositorio.</span></li>
+          <li><span>Abre <code>chrome://extensions/</code> (en Edge, <code>edge://extensions</code>).</span></li>
+          <li><span>Activa el <b>Modo de desarrollador</b> (interruptor arriba a la derecha).</span></li>
+          <li><span>Pulsa <b>Cargar descomprimida</b> y elige la carpeta <code>super-volume/</code>. No elijas <code>dist/</code>: ahí solo hay archivos .zip.</span></li>
+          <li><span>Fija el icono, abre una pestaña con video o audio y mueve el slider. Tras editar el código, pulsa ↻ en la tarjeta de la extensión.</span></li>
+        </ol>
+        <div class="codeblock">
+          <pre id="cloneCmd">git clone https://github.com/alvarosiles/super-volume.git</pre>
+          <button class="copy" type="button" data-copy="cloneCmd">Copiar</button>
+        </div>
+      </div>
+      <div class="card reveal">
+        <h3 style="margin-bottom:12px">Scripts incluidos</h3>
+        <p style="color:var(--muted);margin:0 0 4px;font-size:15px">Para empaquetar el .zip de la Chrome Web Store o probar en un perfil aislado:</p>
+        <div class="codeblock">
+<pre id="buildCmd"><span class="c"># Windows: valida y genera dist/super-volume-v2.0.0.zip</span>
+powershell -File scripts\3-build.ps1
+
+<span class="c"># macOS / Linux</span>
+./scripts/3-build.sh
+
+<span class="c"># Abre Chrome con la extensión cargada (perfil de prueba)</span>
+./scripts/2-test-extension.sh</pre>
+          <button class="copy" type="button" data-copy="buildCmd">Copiar</button>
+        </div>
+        <p class="note">El build también rechaza nombres de plataformas de terceros en los textos de la ficha y descripciones de más de 132 caracteres. La guía completa de publicación está en <a href="../PUBLISHING.md">PUBLISHING.md</a>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ INFORMACIÓN ═════════════════════════ -->
+<section class="block" id="info">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-kicker">// ficha técnica</div>
+      <h2>Información del proyecto</h2>
+    </div>
+    <dl class="facts reveal">
+      <div class="fact"><dt>Nombre</dt><dd>Super Volume<small>name / short_name vía _locales</small></dd></div>
+      <div class="fact"><dt>Tipo</dt><dd>Extensión de navegador<small>Manifest V3</small></dd></div>
+      <div class="fact"><dt>Versión</dt><dd>2.0.0<small>manifest.json</small></dd></div>
+      <div class="fact"><dt>Plataforma</dt><dd>Chrome 102+<small>Edge (Chromium) según el README</small></dd></div>
+      <div class="fact"><dt>Idiomas</dt><dd>Español · English<small>default_locale: es</small></dd></div>
+      <div class="fact"><dt>Dependencias</dt><dd>Ninguna en ejecución<small>Pillow solo para gen_icons.py</small></dd></div>
+      <div class="fact"><dt>Licencia</dt><dd>MIT<small>© 2026 alvarosiles</small></dd></div>
+      <div class="fact"><dt>Estado</dt><dd>Preparada para enviar a la tienda<small>publicación no verificada</small></dd></div>
+    </dl>
+
+    <div class="resources">
+      <a class="card res reveal" href="https://github.com/alvarosiles/super-volume" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.89-2.78.62-3.37-1.21-3.37-1.21-.46-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.05 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.31.1-2.73 0 0 .84-.28 2.75 1.05a9.36 9.36 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.42.2 2.47.1 2.73.64.72 1.03 1.63 1.03 2.75 0 3.92-2.34 4.79-4.57 5.04.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.81 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+        <div><b>Repositorio</b><span>homepage_url del manifest</span><br/><code>github.com/alvarosiles/super-volume</code></div>
+      </a>
+      <a class="card res reveal" href="../README.md">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+        <div><b>README</b><span>Características, arquitectura y personalización</span><br/><code>README.md</code></div>
+      </a>
+      <a class="card res reveal" href="../PUBLISHING.md">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        <div><b>Guía de publicación</b><span>Ficha, permisos y revisión en la Chrome Web Store</span><br/><code>PUBLISHING.md</code></div>
+      </a>
+      <a class="card res reveal" href="../docs/privacy.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+        <div><b>Política de privacidad</b><span>Qué datos guarda (solo localmente)</span><br/><code>docs/privacy.html</code></div>
+      </a>
+      <a class="card res reveal" href="../docs/index.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <div><b>Landing para GitHub Pages</b><span>Página pública breve del proyecto</span><br/><code>docs/index.html</code></div>
+      </a>
+      <a class="card res reveal" href="../LICENSE">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l-5.5 9h11L12 2zm5.5 11a4.5 4.5 0 100 9 4.5 4.5 0 000-9zM3 13.5h8v8H3v-8z"/></svg>
+        <div><b>Licencia</b><span>MIT</span><br/><code>LICENSE</code></div>
+      </a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ═════════════════════════ FOOTER ═════════════════════════ -->
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <a class="brand" href="#inicio"><img src="../icons/icon128.png" alt="" width="30" height="30" /><span>Super Volume</span></a>
+        <p>Extensión de Chrome que amplifica, ecualiza y espacializa el audio de la pestaña con Web Audio API, sin salir del navegador.</p>
+      </div>
+      <div>
+        <h4>Secciones</h4>
+        <ul>
+          <li><a href="#demo">Demo</a></li>
+          <li><a href="#funciones">Funciones</a></li>
+          <li><a href="#arquitectura">Arquitectura</a></li>
+          <li><a href="#permisos">Permisos</a></li>
+          <li><a href="#descargar">Descargar</a></li>
+          <li><a href="#instalacion">Instalación</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Recursos</h4>
+        <ul>
+          <li><a href="https://github.com/alvarosiles/super-volume" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="../README.md">README</a></li>
+          <li><a href="../docs/privacy.html">Privacidad</a></li>
+          <li><a href="mailto:alvarosiles.developer@gmail.com">Contacto</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot__bottom">
+      <span>Super Volume v2.0.0 · Licencia MIT · © 2026 alvarosiles</span>
+      <span>Página estática, sin rastreo.</span>
+    </div>
+  </div>
+</footer>
+
+<button class="totop" id="toTop" type="button" aria-label="Volver arriba">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+</button>
+
+<script>
+(() => {
+  'use strict';
+
+  // ── Constantes copiadas de content.js ────────────────────────────────
+  const MAX = 600;
+  const EQ_PRESETS = {
+    none: { bass: 0, mid: 0, treble: 0 },
+    cine: { bass: 6, mid: 7, treble: -1 },
+    musica: { bass: 5, mid: 1, treble: 4 },
+    juegos: { bass: 3, mid: 2, treble: 7 },
+  };
+  const BASS_BOOST_EXTRA_DB = 9;
+  const VOICE_BOOST_EXTRA_DB = 10;
+  const SURROUND_EQ_EXTRA = {
+    stereo: { bass: 0, mid: 0 }, virtual21: { bass: 4, mid: 2 },
+    virtual51: { bass: 2, mid: 1 }, virtual71: { bass: 3, mid: 1 },
+  };
+  const SPATIAL = {
+    stereo: { wide: false, crossfeed: 0, delayMs: 0, reverbWet: 0 },
+    virtual21: { wide: false, crossfeed: 0, delayMs: 0, reverbWet: 0 },
+    virtual51: { wide: true, crossfeed: 0.35, delayMs: 8, reverbWet: 0.12 },
+    virtual71: { wide: true, crossfeed: 0.5, delayMs: 14, reverbWet: 0.2 },
+  };
+
+  // ── Textos (subconjunto de _locales/es y _locales/en) ────────────────
+  const MSG = {
+    es: {
+      volumeLabel: 'Volumen', btnReset: 'Reset', btnMute: 'Mute', btnUnmute: 'Unmute', eqCardLabel: 'Ecualizador',
+      eqPresetNone: 'Ninguno', eqPresetCine: 'Cine', eqPresetMusica: 'Música', eqPresetJuegos: 'Juegos',
+      surroundCardLabel: 'Modo de sonido', surroundIntensityLabel: 'Intensidad', rememberLabel: 'Recordar volumen por sitio',
+      demoTitle: 'Tono de prueba sintetizado',
+      stereo: 'Audio normal, sin procesamiento.',
+      virtual21: 'Refuerzo inteligente de graves con Bass Boost independiente, manteniendo las voces claras.',
+      virtual51: 'Sonido envolvente virtual: mayor amplitud estéreo, reverb ligera, delay muy pequeño y posicionamiento espacial.',
+      virtual71: 'Envolvente avanzado: mejor separación izquierda/derecha, sensación de profundidad e intensidad configurable.',
+      reset: 'Volumen restablecido a 100%', rememberOn: 'Se recordará el volumen de este sitio', rememberOff: 'Ya no se recordará el volumen',
+      voiceOn: 'Voice Boost activado', voiceOff: 'Voice Boost desactivado', bassOn: 'Bass Boost activado', bassOff: 'Bass Boost desactivado',
+      eqOff: 'Ecualizador desactivado', eqOn: 'Ecualizador: ', mode: 'Modo de sonido: ', theme: 'Tema: ', lang: 'Idioma: ',
+      themes: { auto: 'Automático (según el sistema)', light: 'Claro', dark: 'Oscuro' },
+      langs: { auto: 'Automático (navegador)', en: 'English', es: 'Español' },
+    },
+    en: {
+      volumeLabel: 'Volume', btnReset: 'Reset', btnMute: 'Mute', btnUnmute: 'Unmute', eqCardLabel: 'Equalizer',
+      eqPresetNone: 'None', eqPresetCine: 'Cinema', eqPresetMusica: 'Music', eqPresetJuegos: 'Games',
+      surroundCardLabel: 'Sound mode', surroundIntensityLabel: 'Intensity', rememberLabel: 'Remember volume per site',
+      demoTitle: 'Synthesized test tone',
+      stereo: 'Normal audio, unprocessed.',
+      virtual21: 'Smart bass reinforcement with independent Bass Boost, while keeping voices clear.',
+      virtual51: 'Virtual surround sound: wider stereo image, light reverb, a very small delay, and virtual spatial positioning.',
+      virtual71: 'Advanced surround: better left/right separation, a sense of depth, and configurable intensity.',
+      reset: 'Volume reset to 100%', rememberOn: "This site's volume will be remembered", rememberOff: 'Volume will no longer be remembered',
+      voiceOn: 'Voice Boost on', voiceOff: 'Voice Boost off', bassOn: 'Bass Boost on', bassOff: 'Bass Boost off',
+      eqOff: 'Equalizer off', eqOn: 'Equalizer: ', mode: 'Sound mode: ', theme: 'Theme: ', lang: 'Language: ',
+      themes: { auto: 'Automatic (system)', light: 'Light', dark: 'Dark' },
+      langs: { auto: 'Automatic (browser)', en: 'English', es: 'Español' },
+    },
+  };
+  const PRESET_KEYS = { none: 'eqPresetNone', cine: 'eqPresetCine', musica: 'eqPresetMusica', juegos: 'eqPresetJuegos' };
+  const MODE_LABELS = { stereo: 'Stereo 2.0', virtual21: 'Virtual 2.1', virtual51: 'Virtual 5.1', virtual71: 'Virtual 7.1' };
+  const THEME_ORDER = ['auto', 'light', 'dark'];
+  const THEME_ICONS = {
+    auto: 'M12 2a10 10 0 100 20 10 10 0 000-20zm0 2v16a8 8 0 010-16z',
+    light: 'M12 7a5 5 0 100 10 5 5 0 000-10zM2 13h2v-2H2v2zm18 0h2v-2h-2v2zm-9-9h2V2h-2v2zm0 18h2v-2h-2v2zM4.22 5.64l1.42 1.42 1.41-1.41-1.42-1.42-1.41 1.41zm14.14 14.14l1.41-1.41-1.42-1.42-1.41 1.42 1.42 1.41zM4.22 18.36l1.41 1.41 1.42-1.41-1.42-1.42-1.41 1.42zM19.78 5.64l-1.41-1.41-1.42 1.41 1.42 1.42 1.41-1.42z',
+    dark: 'M12.3 3a9 9 0 109.4 12.9A9 9 0 0112.3 3z',
+  };
+  const ICON_UNMUTED = 'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.99-3.29-2.5-4.03v8.05c1.51-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z';
+  const ICON_MUTED = 'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z';
+
+  const $ = (id) => document.getElementById(id);
+  const S = { percent: 100, muted: false, before: 100, preset: 'none', bass: false, voice: false, mode: 'stereo', intensity: 60, remember: false, theme: 'auto', lang: 'auto' };
+
+  const browserLang = (navigator.language || 'es').toLowerCase().startsWith('es') ? 'es' : 'en';
+  const L = () => MSG[S.lang === 'auto' ? browserLang : S.lang];
+
+  // Mismas fórmulas que computeEqGains() y applySurroundGraph() de content.js
+  function eqGains() {
+    const p = EQ_PRESETS[S.preset];
+    const x = SURROUND_EQ_EXTRA[S.mode];
+    return {
+      bass: p.bass + x.bass + (S.bass ? BASS_BOOST_EXTRA_DB : 0),
+      mid: p.mid + x.mid + (S.voice ? VOICE_BOOST_EXTRA_DB : 0),
+      treble: p.treble,
+    };
+  }
+  function spatial() {
+    const p = SPATIAL[S.mode];
+    const k = S.mode === 'virtual71' ? S.intensity / 100 : 1;
+    return { wide: p.wide, cross: -(p.crossfeed * k), delayMs: p.delayMs * k, wet: p.reverbWet * k };
+  }
+  const gainValue = () => (S.muted ? 0 : S.percent / 100);
+
+  // ── Motor de audio de la demo (mismo grafo que ensureAudioGraph) ─────
+  const engine = { ctx: null, n: null, src: null, playing: false };
+
+  function buildGraph(ctx) {
+    const g = eqGains(), sp = spatial();
+    const n = {};
+    n.bass = ctx.createBiquadFilter(); n.bass.type = 'lowshelf'; n.bass.frequency.value = 150; n.bass.gain.value = g.bass;
+    n.mid = ctx.createBiquadFilter(); n.mid.type = 'peaking'; n.mid.frequency.value = 2500; n.mid.Q.value = 0.9; n.mid.gain.value = g.mid;
+    n.treble = ctx.createBiquadFilter(); n.treble.type = 'highshelf'; n.treble.frequency.value = 8000; n.treble.gain.value = g.treble;
+    n.gain = ctx.createGain(); n.gain.gain.value = gainValue();
+    n.input = ctx.createGain(); n.out = ctx.createGain();
+    n.dry = ctx.createGain(); n.dry.gain.value = sp.wide ? 0 : 1;
+    n.input.connect(n.dry); n.dry.connect(n.out);
+    n.split = ctx.createChannelSplitter(2); n.merge = ctx.createChannelMerger(2);
+    n.input.connect(n.split);
+    n.split.connect(n.merge, 0, 0); n.split.connect(n.merge, 1, 1);
+    n.cLR = ctx.createGain(); n.cLR.gain.value = sp.cross; n.dLR = ctx.createDelay(0.05); n.dLR.delayTime.value = sp.delayMs / 1000;
+    n.split.connect(n.cLR, 0); n.cLR.connect(n.dLR); n.dLR.connect(n.merge, 0, 1);
+    n.cRL = ctx.createGain(); n.cRL.gain.value = sp.cross; n.dRL = ctx.createDelay(0.05); n.dRL.delayTime.value = sp.delayMs / 1000;
+    n.split.connect(n.cRL, 1); n.cRL.connect(n.dRL); n.dRL.connect(n.merge, 0, 0);
+    n.wide = ctx.createGain(); n.wide.gain.value = sp.wide ? 1 : 0;
+    n.merge.connect(n.wide); n.wide.connect(n.out);
+    n.conv = ctx.createConvolver(); n.conv.normalize = true; n.conv.buffer = impulse(ctx, 1.2, 3.2);
+    n.send = ctx.createGain(); n.send.gain.value = sp.wet;
+    n.input.connect(n.send); n.send.connect(n.conv); n.conv.connect(n.out);
+    n.bass.connect(n.mid); n.mid.connect(n.treble); n.treble.connect(n.input);
+    n.out.connect(n.gain); n.gain.connect(ctx.destination);
+    return n;
+  }
+
+  function impulse(ctx, dur, decay) {
+    const len = Math.max(1, Math.round(ctx.sampleRate * dur));
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+    return buf;
+  }
+
+  // Bucle de 4 compases a 110 BPM sintetizado en un AudioBuffer estéreo:
+  // bajo (graves), acordes y una línea media (zona de voz), y hi-hats (agudos)
+  // con paneo distinto por canal para que el modo espacial se note.
+  function makeLoop(ctx) {
+    const sr = ctx.sampleRate, beat = 60 / 110, dur = beat * 16, len = Math.floor(sr * dur);
+    const buf = ctx.createBuffer(2, len, sr);
+    const L0 = buf.getChannelData(0), R0 = buf.getChannelData(1);
+    const bassNotes = [55, 55, 73.42, 65.41];
+    const chords = [[220, 261.63, 329.63], [220, 261.63, 329.63], [293.66, 349.23, 440], [261.63, 329.63, 392]];
+    const lead = [659.25, 587.33, 523.25, 587.33, 659.25, 783.99, 659.25, 587.33];
+    const TAU = Math.PI * 2;
+    for (let i = 0; i < len; i++) {
+      const t = i / sr, bar = Math.floor(t / (beat * 4)) % 4, tb = t % beat, t8 = t % (beat / 2);
+      const envB = Math.exp(-tb * 5);
+      const bass = Math.sin(TAU * bassNotes[bar] * t) * 0.5 * envB + Math.sin(TAU * bassNotes[bar] * 2 * t) * 0.12 * envB;
+      const tc = t % (beat * 4);
+      const envC = Math.min(1, tc * 20) * Math.exp(-tc * 0.6);
+      let chord = 0; for (const f of chords[bar]) chord += Math.sin(TAU * f * t) * 0.07 + Math.sin(TAU * f * 2 * t) * 0.02;
+      chord *= envC;
+      const li = Math.floor(t / (beat / 2)) % lead.length;
+      const envL = Math.exp(-t8 * 6);
+      const ld = (Math.sin(TAU * lead[li] * t) + 0.5 * Math.sin(TAU * lead[li] * 3 * t) + 0.3 * Math.sin(TAU * lead[li] * 4 * t)) * 0.06 * envL;
+      const hat = (Math.random() * 2 - 1) * Math.exp(-t8 * 60) * 0.09;
+      L0[i] = (bass + chord * 1.3 + ld * 0.6 + hat * 0.4) * 0.5;
+      R0[i] = (bass + chord * 0.7 + ld * 1.4 + hat * 1.6) * 0.5;
+    }
+    return buf;
+  }
+
+  function startTone() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { status('Web Audio API no disponible en este navegador'); return; }
+    if (!engine.ctx) {
+      engine.ctx = new AC();
+      engine.n = buildGraph(engine.ctx);
+      engine.loop = makeLoop(engine.ctx);
+    }
+    engine.ctx.resume().catch(() => {});
+    engine.src = engine.ctx.createBufferSource();
+    engine.src.buffer = engine.loop; engine.src.loop = true;
+    engine.src.connect(engine.n.bass);
+    engine.src.start();
+    engine.playing = true;
+    renderTone();
+  }
+  function stopTone() {
+    if (engine.src) { try { engine.src.stop(); } catch (_e) {} engine.src.disconnect(); engine.src = null; }
+    engine.playing = false;
+    renderTone();
+  }
+  function renderTone() {
+    $('toneBtn').setAttribute('aria-pressed', String(engine.playing));
+    $('toneLabel').textContent = engine.playing ? 'Detener tono' : 'Reproducir tono de prueba';
+    $('toneIcon').setAttribute('d', engine.playing ? 'M6 6h12v12H6z' : 'M8 5v14l11-7z');
+  }
+
+  // Aplica el estado al grafo con setTargetAtTime, como content.js.
+  function applyAudio() {
+    if (!engine.ctx) return;
+    const n = engine.n, t = engine.ctx.currentTime, g = eqGains(), sp = spatial();
+    n.gain.gain.setTargetAtTime(gainValue(), t, S.muted ? 0.01 : 0.015);
+    n.bass.gain.setTargetAtTime(g.bass, t, 0.02);
+    n.mid.gain.setTargetAtTime(g.mid, t, 0.02);
+    n.treble.gain.setTargetAtTime(g.treble, t, 0.02);
+    n.dry.gain.setTargetAtTime(sp.wide ? 0 : 1, t, 0.02);
+    n.wide.gain.setTargetAtTime(sp.wide ? 1 : 0, t, 0.02);
+    n.cLR.gain.setTargetAtTime(sp.cross, t, 0.02); n.cRL.gain.setTargetAtTime(sp.cross, t, 0.02);
+    n.dLR.delayTime.setTargetAtTime(sp.delayMs / 1000, t, 0.02); n.dRL.delayTime.setTargetAtTime(sp.delayMs / 1000, t, 0.02);
+    n.send.gain.setTargetAtTime(sp.wet, t, 0.05);
+  }
+
+  // ── Curva del ecualizador (OfflineAudioContext: no requiere gesto) ───
+  const chart = { ok: false };
+  try {
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const off = new OAC(1, 1, 44100);
+    chart.f = [off.createBiquadFilter(), off.createBiquadFilter(), off.createBiquadFilter()];
+    chart.f[0].type = 'lowshelf'; chart.f[0].frequency.value = 150;
+    chart.f[1].type = 'peaking'; chart.f[1].frequency.value = 2500; chart.f[1].Q.value = 0.9;
+    chart.f[2].type = 'highshelf'; chart.f[2].frequency.value = 8000;
+    const N = 160;
+    chart.freq = new Float32Array(N);
+    for (let i = 0; i < N; i++) chart.freq[i] = 20 * Math.pow(1000, i / (N - 1));
+    chart.mag = new Float32Array(N); chart.ph = new Float32Array(N);
+    chart.ok = true;
+  } catch (_e) { chart.ok = false; }
+
+  const CH = { x0: 44, x1: 628, y0: 12, y1: 200, dbMin: -6, dbMax: 24 };
+  const xOf = (f) => CH.x0 + (Math.log10(f / 20) / 3) * (CH.x1 - CH.x0);
+  const yOf = (db) => CH.y1 - ((db - CH.dbMin) / (CH.dbMax - CH.dbMin)) * (CH.y1 - CH.y0);
+
+  (function drawGrid() {
+    const g = $('eqGrid'); let s = '';
+    for (const db of [-6, 0, 6, 12, 18, 24]) {
+      s += `<line class="${db === 0 ? 'zero' : 'grid'}" x1="${CH.x0}" x2="${CH.x1}" y1="${yOf(db)}" y2="${yOf(db)}"/>`;
+      s += `<text x="${CH.x0 - 8}" y="${yOf(db) + 4}" text-anchor="end">${db > 0 ? '+' : ''}${db}</text>`;
+    }
+    for (const [f, l] of [[20, '20'], [100, '100'], [1000, '1k'], [10000, '10k'], [20000, '20k']]) {
+      s += `<line class="grid" x1="${xOf(f)}" x2="${xOf(f)}" y1="${CH.y0}" y2="${CH.y1}"/>`;
+      s += `<text x="${xOf(f)}" y="${CH.y1 + 18}" text-anchor="middle">${l}</text>`;
+    }
+    s += `<text x="${CH.x1}" y="${CH.y1 + 18}" text-anchor="end" dx="0" dy="0" style="opacity:0">Hz</text>`;
+    g.innerHTML = s;
+  })();
+
+  function drawCurve() {
+    if (!chart.ok) { $('eqChart').style.display = 'none'; return; }
+    const g = eqGains();
+    chart.f[0].gain.value = g.bass; chart.f[1].gain.value = g.mid; chart.f[2].gain.value = g.treble;
+    const total = new Float32Array(chart.freq.length);
+    for (const f of chart.f) {
+      f.getFrequencyResponse(chart.freq, chart.mag, chart.ph);
+      for (let i = 0; i < total.length; i++) total[i] += 20 * Math.log10(chart.mag[i]);
+    }
+    let d = '';
+    for (let i = 0; i < total.length; i++) {
+      const db = Math.max(CH.dbMin, Math.min(CH.dbMax, total[i]));
+      d += (i ? 'L' : 'M') + xOf(chart.freq[i]).toFixed(1) + ' ' + yOf(db).toFixed(1);
+    }
+    $('eqCurve').setAttribute('d', d);
+    $('eqArea').setAttribute('d', d + `L${CH.x1} ${CH.y1}L${CH.x0} ${CH.y1}Z`);
+  }
+
+  // ── Render de la réplica y paneles ───────────────────────────────────
+  const fmtDb = (v) => (v > 0 ? '+' : '') + v + ' dB';
+  let statusTimer = null;
+  function status(text) {
+    $('svStatus').textContent = text;
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => { $('svStatus').textContent = ''; }, 1800);
+  }
+
+  function render() {
+    const m = L();
+    // popup
+    const slider = $('svSlider');
+    slider.value = S.percent;
+    const pct = (S.percent / MAX) * 100;
+    slider.style.background = `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, var(--border) ${pct}%)`;
+    const val = $('svValue');
+    val.textContent = S.percent + '%';
+    val.classList.toggle('boosted', S.percent > 100 && !S.muted);
+    val.classList.toggle('muted', S.muted);
+    $('svMute').setAttribute('aria-pressed', String(S.muted));
+    $('svMuteLabel').textContent = S.muted ? m.btnUnmute : m.btnMute;
+    $('svMutePath').setAttribute('d', S.muted ? ICON_MUTED : ICON_UNMUTED);
+    document.querySelectorAll('#svPresets button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.preset === S.preset)));
+    document.querySelectorAll('#svModes button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
+    $('svModeDesc').textContent = m[S.mode];
+    $('svIntRow').classList.toggle('hidden', S.mode !== 'virtual71');
+    $('svInt').value = S.intensity; $('svIntVal').textContent = S.intensity + '%';
+    const ip = S.intensity;
+    $('svInt').style.background = `linear-gradient(to right, var(--accent) 0%, var(--accent) ${ip}%, var(--border) ${ip}%)`;
+    $('svVoice').checked = S.voice; $('svBass').checked = S.bass; $('svRemember').checked = S.remember;
+    const badge = $('demoBadge');
+    badge.hidden = S.percent === 100;
+    badge.textContent = S.percent;
+
+    // hero
+    const frac = S.muted ? 0 : S.percent / MAX;
+    $('heroArc').setAttribute('stroke-dasharray', `${(405.3 * frac).toFixed(1)} 540.4`);
+    const hv = $('heroValue');
+    hv.textContent = (S.muted ? 0 : S.percent) + '%';
+    hv.style.color = S.muted ? 'var(--red)' : S.percent > 100 ? 'var(--amber)' : 'var(--text)';
+
+    // curva + parámetros + cadena
+    const g = eqGains(), sp = spatial();
+    $('eqSummary').textContent = `bass ${fmtDb(g.bass)} · mid ${fmtDb(g.mid)} · treble ${fmtDb(g.treble)}`;
+    drawCurve();
+    const params = [
+      ['gainNode.gain', gainValue().toFixed(2), gainValue() !== 1],
+      ['bassFilter.gain', fmtDb(g.bass), g.bass !== 0],
+      ['midFilter.gain', fmtDb(g.mid), g.mid !== 0],
+      ['trebleFilter.gain', fmtDb(g.treble), g.treble !== 0],
+      ['dryGain / wideGain', sp.wide ? '0 / 1' : '1 / 0', sp.wide],
+      ['cross-feed', sp.cross ? sp.cross.toFixed(3) : '0', !!sp.cross],
+      ['delayTime', sp.delayMs.toFixed(1) + ' ms', sp.delayMs > 0],
+      ['reverbSend', sp.wet.toFixed(3), sp.wet > 0],
+    ];
+    $('params').innerHTML = params.map(([k, v, on]) => `<div class="param${on ? ' param--on' : ''}"><div class="param__k">${k}</div><div class="param__v">${v}</div></div>`).join('');
+
+    const set = (n, on) => { const el = document.querySelector(`#chain [data-n="${n}"]`); el.classList.toggle('on', on); el.classList.toggle('off', !on); };
+    set('bass', g.bass !== 0); set('mid', g.mid !== 0); set('treble', g.treble !== 0);
+    set('dry', !sp.wide); set('wide', sp.wide); set('rev', sp.wet > 0); set('gain', true);
+    const v = (n, t) => { document.querySelector(`#chain [data-v="${n}"]`).textContent = t; };
+    v('bass', fmtDb(g.bass)); v('mid', fmtDb(g.mid)); v('treble', fmtDb(g.treble));
+    v('wide', sp.wide ? `cross ${sp.cross.toFixed(2)} · ${sp.delayMs.toFixed(1)} ms` : 'inactiva');
+    v('rev', 'wet ' + sp.wet.toFixed(3));
+    v('gain', '×' + gainValue().toFixed(2));
+
+    applyAudio();
+  }
+
+  function renderLang() {
+    const m = L();
+    document.querySelectorAll('#sv [data-t]').forEach((el) => { el.textContent = m[el.dataset.t]; });
+    $('svLang').textContent = { auto: 'A', en: 'EN', es: 'ES' }[S.lang];
+    $('svLang').setAttribute('aria-label', m.lang + m.langs[S.lang]);
+    $('svLang').title = m.lang + m.langs[S.lang];
+    renderTheme();
+  }
+  function renderTheme() {
+    const m = L();
+    const sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    $('sv').setAttribute('data-theme', S.theme === 'auto' ? sys : S.theme);
+    $('svThemePath').setAttribute('d', THEME_ICONS[S.theme]);
+    $('svTheme').setAttribute('aria-label', m.theme + m.themes[S.theme]);
+    $('svTheme').title = m.theme + m.themes[S.theme];
+  }
+
+  // ── Eventos (equivalentes a popup.js) ────────────────────────────────
+  $('svSlider').addEventListener('input', (e) => { if (S.muted) S.muted = false; S.percent = Number(e.target.value); render(); });
+  $('svReset').addEventListener('click', () => { S.muted = false; S.percent = 100; render(); status(L().reset); });
+  $('svMute').addEventListener('click', () => {
+    if (!S.muted) { S.before = S.percent; S.muted = true; } else { S.muted = false; S.percent = S.before; }
+    render();
+  });
+  document.querySelectorAll('#svPresets button').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.preset === S.preset) return;
+    S.preset = b.dataset.preset; render();
+    status(S.preset === 'none' ? L().eqOff : L().eqOn + L()[PRESET_KEYS[S.preset]]);
+  }));
+  $('svVoice').addEventListener('change', (e) => { S.voice = e.target.checked; render(); status(S.voice ? L().voiceOn : L().voiceOff); });
+  $('svBass').addEventListener('change', (e) => { S.bass = e.target.checked; render(); status(S.bass ? L().bassOn : L().bassOff); });
+  document.querySelectorAll('#svModes button').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.mode === S.mode) return;
+    S.mode = b.dataset.mode; render(); status(L().mode + MODE_LABELS[S.mode]);
+  }));
+  $('svInt').addEventListener('input', (e) => { S.intensity = Number(e.target.value); render(); });
+  $('svRemember').addEventListener('change', (e) => { S.remember = e.target.checked; status(S.remember ? L().rememberOn : L().rememberOff); });
+  $('svTheme').addEventListener('click', () => {
+    S.theme = THEME_ORDER[(THEME_ORDER.indexOf(S.theme) + 1) % 3]; renderTheme(); status(L().theme + L().themes[S.theme]);
+  });
+  $('svLang').addEventListener('click', () => {
+    S.lang = ['auto', 'en', 'es'][(['auto', 'en', 'es'].indexOf(S.lang) + 1) % 3]; renderLang(); render(); status(L().lang + L().langs[S.lang]);
+  });
+  $('toneBtn').addEventListener('click', () => (engine.playing ? stopTone() : startTone()));
+
+  // ── Navegación, menú móvil, copiar, volver arriba, animaciones ───────
+  const toggle = $('navToggle'), links = $('navLinks');
+  function setMenu(open) {
+    links.classList.toggle('open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? 'Cerrar menú' : 'Abrir menú');
+  }
+  toggle.addEventListener('click', () => setMenu(!links.classList.contains('open')));
+  links.addEventListener('click', (e) => { if (e.target.closest('a')) setMenu(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && links.classList.contains('open')) { setMenu(false); toggle.focus(); } });
+
+  document.querySelectorAll('.copy').forEach((btn) => btn.addEventListener('click', async () => {
+    const text = $(btn.dataset.copy).innerText;
+    try { await navigator.clipboard.writeText(text); btn.textContent = 'Copiado'; }
+    catch (_e) { btn.textContent = 'No disponible'; }
+    setTimeout(() => { btn.textContent = 'Copiar'; }, 1600);
+  }));
+
+  const toTop = $('toTop');
+  window.addEventListener('scroll', () => toTop.classList.toggle('show', window.scrollY > 700), { passive: true });
+  toTop.addEventListener('click', () => { window.scrollTo({ top: 0 }); document.querySelector('.brand').focus(); });
+
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const items = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    items.forEach((el) => el.classList.add('in'));
+  } else {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 });
+    items.forEach((el) => io.observe(el));
+  }
+
+  renderLang();
+  render();
+})();
+</script>
+</body>
+</html>
